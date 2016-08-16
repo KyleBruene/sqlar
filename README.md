@@ -1,4 +1,5 @@
-# SQLAR - SQLite Archiver
+<h1 align="center">SQLAR - SQLite Archiver</h1>
+
 This repository contains sources for a proof-of-concept "SQLite Archiver"
 program.  This program (named "sqlar") operates much like "zip", except that
 the compressed archive it builds is stored in an SQLite database instead

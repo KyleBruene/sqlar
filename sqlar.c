@@ -22,17 +22,24 @@
 #include <unistd.h>
 #include <dirent.h>
 #include <string.h>
+#include <assert.h>
+#include <ctype.h>
+
+/* Maximum length of a pass-phrase */
+#define MX_PASSPHRASE  40
 
 /*
 ** Show a help message and quit.
 */
 static void showHelp(const char *argv0){
   fprintf(stderr, "Usage: %s [options] archive [files...]\n", argv0);
-  fprintf(stderr, "Options:\n"
-                  "   -l      List files in archive\n"
-                  "   -n      Do not compress files\n"
-                  "   -x      Extract files from archive\n"
-                  "   -v      Verbose output\n"
+  fprintf(stderr,
+     "Options:\n"
+     "   -e      Prompt for passphrase.  -ee to scramble the prompt\n"
+     "   -l      List files in archive\n"
+     "   -n      Do not compress files\n"
+     "   -x      Extract files from archive\n"
+     "   -v      Verbose output\n"
   );
   exit(1);
 }
@@ -93,9 +100,107 @@ static void errorMsg(const char *zFormat, ...){
 }
 
 /*
+** Scramble substitution matrix:
+*/
+static char aSubst[256];
+
+/*
+** Descramble the password
+*/
+static void descramble(char *z){
+  int i;
+  for(i=0; z[i]; i++) z[i] = aSubst[(unsigned char)z[i]];
+}
+
+/* Print a string in 5-letter groups */
+static void printFive(const unsigned char *z){
+  int i;
+  for(i=0; z[i]; i++){
+    if( i>0 && (i%5)==0 ) putchar(' ');
+    putchar(z[i]);
+  }
+  putchar('\n');
+}
+
+/* Return a pseudo-random integer between 0 and N-1 */
+static int randint(int N){
+  unsigned char x;
+  assert( N<256 );
+  sqlite3_randomness(1, &x);
+  return x % N;
+}
+
+/*
+** Generate and print a random scrambling of letters a through z (omitting x)
+** and set up the aSubst[] matrix to descramble.
+*/
+static void generateScrambleCode(void){
+  unsigned char zOrig[30];
+  unsigned char zA[30];
+  unsigned char zB[30];
+  int nA = 25;
+  int nB = 0;
+  int i;
+  memcpy(zOrig, "abcdefghijklmnopqrstuvwyz", nA+1);
+  memcpy(zA, zOrig, nA+1);
+  assert( nA==(int)strlen((char*)zA) );
+  for(i=0; i<sizeof(aSubst); i++) aSubst[i] = i;
+  printFive(zA);
+  while( nA>0 ){
+    int x = randint(nA);
+    zB[nB++] = zA[x];
+    zA[x] = zA[--nA];
+  }
+  assert( nB==25 );
+  zB[nB] = 0;
+  printFive(zB);
+  for(i=0; i<nB; i++) aSubst[zB[i]] = zOrig[i];
+}
+
+/*
+** Do a single prompt for a passphrase.  Store the results in the blob.
+**
+** If the FOSSIL_PWREADER environment variable is set, then it will
+** be the name of a program that prompts the user for their password/
+** passphrase in a secure manner.  The program should take one or more
+** arguments which are the prompts and should output the acquired
+** passphrase as a single line on stdout.  This function will read the
+** output using popen().
+**
+** If FOSSIL_PWREADER is not set, or if it is not the name of an
+** executable, then use the C-library getpass() routine.
+**
+** The return value is a pointer to a static buffer that is overwritten
+** on subsequent calls to this same routine.
+*/
+static void prompt_for_passphrase(
+  const char *zPrompt,    /* Passphrase prompt */
+  int doScramble,         /* Scramble the input if true */
+  char *zPassphrase       /* Write result here */
+){
+  char *z;
+  int i;
+  if( doScramble ){
+    generateScrambleCode();
+    z = getpass(zPrompt);
+    if( z ) descramble(z);
+    printf("\033[3A\033[J");  /* Erase previous three lines */
+    fflush(stdout);
+  }else{
+    z = getpass(zPrompt);
+  }
+  while( isspace(z[0]) ) z++;
+  for(i=0; i<MX_PASSPHRASE-1; i++){
+    zPassphrase[i] = z[i];
+  }
+  while( i>0 && isspace(z[i-1]) ){ i--; }
+  zPassphrase[i] = 0;
+}
+
+/*
 ** Open the database.
 */
-static void db_open(const char *zArchive, int writeFlag){
+static void db_open(const char *zArchive, int writeFlag, int seeFlag){
   int rc;
   int fg;
   if( writeFlag ){
@@ -106,6 +211,19 @@ static void db_open(const char *zArchive, int writeFlag){
   rc = sqlite3_open_v2(zArchive, &db, fg, 0);
   if( rc ) errorMsg("Cannot open archive [%s]: %s\n", zArchive,
                     sqlite3_errmsg(db));
+  if( seeFlag ){
+    char *zSql;
+    char zPassPhrase[MX_PASSPHRASE+1];
+#ifndef SQLITE_HAS_CODEC
+    printf("WARNING:  The passphrase is a no-op because this build of\n"
+           "sqlar is compiled without encryption capabilities.\n");
+#endif
+    memset(zPassPhrase, 0, sizeof(zPassPhrase));
+    prompt_for_passphrase("passphrase: ", seeFlag>1, zPassPhrase);
+    zSql = sqlite3_mprintf("PRAGMA key(%Q)", zPassPhrase);
+    sqlite3_exec(db, zSql, 0, 0, 0);
+    sqlite3_free(zSql);
+  }
   sqlite3_exec(db, "BEGIN", 0, 0, 0);
   sqlite3_exec(db, zSchema, 0, 0, 0);
 }
@@ -371,6 +489,7 @@ int main(int argc, char **argv){
   int extractFlag = 0;
   int verboseFlag = 0;
   int noCompress = 0;
+  int seeFlag = 0;
   int i, j;
 
   if( sqlite3_strglob("*/unsqlar", argv[0])==0 ){
@@ -384,6 +503,7 @@ int main(int argc, char **argv){
           case 'n':   noCompress = 1;  break;
           case 'v':   verboseFlag = 1; break;
           case 'x':   extractFlag = 1; break;
+          case 'e':   seeFlag++;       break;
           case '-':   break;
           default:    showHelp(argv[0]);
         }
@@ -398,7 +518,7 @@ int main(int argc, char **argv){
   }
   if( zArchive==0 ) showHelp(argv[0]);
   if( listFlag ){
-    db_open(zArchive, 0);
+    db_open(zArchive, 0, seeFlag);
     if( verboseFlag ){
       db_prepare(
           "SELECT name, sz, length(data), mode, datetime(mtime,'unixepoch')"
@@ -423,7 +543,7 @@ int main(int argc, char **argv){
     db_close(1);
   }else if( extractFlag ){
     const char *zSql;
-    db_open(zArchive, 0);
+    db_open(zArchive, 0, seeFlag);
     if( nFiles ){
       NameList x;
       x.azName = azFiles;
@@ -455,7 +575,7 @@ int main(int argc, char **argv){
     db_close(1);
   }else{
     if( azFiles==0 ) showHelp(argv[0]);
-    db_open(zArchive, 1);
+    db_open(zArchive, 1, seeFlag);
     for(i=0; i<nFiles; i++){
       add_file(azFiles[i], verboseFlag, noCompress);
     }

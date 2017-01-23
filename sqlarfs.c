@@ -233,7 +233,7 @@ static void showHelp(const char *argv0){
 }
 
 /* Maximum length of a pass-phrase */
-#define MX_PASSPHRASE  40
+#define MX_PASSPHRASE  120
 
 /*
 ** Scramble substitution matrix:
@@ -365,7 +365,6 @@ int main(int argc, char **argv){
     exit(1);
   }
   if( seeFlag ){
-    char *zSql;
     char zPassPhrase[MX_PASSPHRASE+1];
 #ifndef SQLITE_HAS_CODEC
     printf("WARNING:  The passphrase is a no-op because this build of\n"
@@ -373,9 +372,9 @@ int main(int argc, char **argv){
 #endif
     memset(zPassPhrase, 0, sizeof(zPassPhrase));
     prompt_for_passphrase("passphrase: ", seeFlag>1, zPassPhrase);
-    zSql = sqlite3_mprintf("PRAGMA key(%Q)", zPassPhrase);
-    sqlite3_exec(g.db, zSql, 0, 0, 0);
-    sqlite3_free(zSql);
+#ifdef SQLITE_HAS_CODEC
+    sqlite3_key_v2(g.db, "main", zPassPhrase, -1);
+#endif
   }
   rc = sqlite3_exec(g.db, "SELECT 1 FROM sqlar LIMIT 1", 0, 0, 0);
   if( rc!=SQLITE_OK ){

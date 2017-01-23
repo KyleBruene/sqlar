@@ -26,7 +26,7 @@
 #include <ctype.h>
 
 /* Maximum length of a pass-phrase */
-#define MX_PASSPHRASE  40
+#define MX_PASSPHRASE  120
 
 /*
 ** Show a help message and quit.
@@ -35,6 +35,7 @@ static void showHelp(const char *argv0){
   fprintf(stderr, "Usage: %s [options] archive [files...]\n", argv0);
   fprintf(stderr,
      "Options:\n"
+     "   -d      Delete files from the archive\n"
      "   -e      Prompt for passphrase.  -ee to scramble the prompt\n"
      "   -l      List files in archive\n"
      "   -n      Do not compress files\n"
@@ -47,7 +48,7 @@ static void showHelp(const char *argv0){
 /*
 ** The database schema:
 */
-static const char zSchema[] = 
+static const char zSchema[] =
   "CREATE TABLE IF NOT EXISTS sqlar(\n"
   "  name TEXT PRIMARY KEY,\n"
   "  mode INT,\n"
@@ -198,11 +199,60 @@ static void prompt_for_passphrase(
 }
 
 /*
+** List of command-line arguments
+*/
+typedef struct NameList NameList;
+struct NameList {
+  const char **azName;   /* List of names */
+  int nName;             /* Number of names on the list */
+};
+
+/*
+** Inplementation of SQL function "name_on_list(X)".  Return
+** true if X is on the list of GLOB patterns given on the command-line.
+*/
+static void name_on_list(
+  sqlite3_context *context,
+  int argc,
+  sqlite3_value **argv
+){
+  NameList *pList = (NameList*)sqlite3_user_data(context);
+  int i;
+  int rc = 0;
+  const char *z = (const char*)sqlite3_value_text(argv[0]);
+  if( z!=0 ){
+    for(i=0; i<pList->nName; i++){
+      if( sqlite3_strglob(pList->azName[i], z)==0 ){
+        rc = 1;
+        break;
+      }
+    }
+  }
+  sqlite3_result_int(context, rc);
+}
+
+/*
+** SQL functions that always true.  This is used in place of
+** name_on_list() when no command-line arguments are given.
+*/
+static void alwaysTrue(sqlite3_context *ctx, int n, sqlite3_value **v){
+  sqlite3_result_int(ctx, 1);
+}
+
+
+/*
 ** Open the database.
 */
-static void db_open(const char *zArchive, int writeFlag, int seeFlag){
+static void db_open(
+  const char *zArchive,
+  int writeFlag,
+  int seeFlag,
+  const char **azFiles,
+  int nFiles
+){
   int rc;
   int fg;
+  NameList *x = 0;
   if( writeFlag ){
     fg = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE;
   }else{
@@ -211,8 +261,18 @@ static void db_open(const char *zArchive, int writeFlag, int seeFlag){
   rc = sqlite3_open_v2(zArchive, &db, fg, 0);
   if( rc ) errorMsg("Cannot open archive [%s]: %s\n", zArchive,
                     sqlite3_errmsg(db));
+  if( azFiles!=0 && nFiles>0 ){
+    x = sqlite3_malloc( sizeof(NameList) );
+    if( x==0 ) errorMsg("Out of memory");
+    x->azName = azFiles;
+    x->nName = nFiles;
+    sqlite3_create_function(db, "name_on_list", 1, SQLITE_UTF8,
+                           (char*)x, name_on_list, 0, 0);
+  }else{
+    sqlite3_create_function(db, "name_on_list", 1, SQLITE_UTF8,
+                            0, alwaysTrue, 0, 0);
+  }
   if( seeFlag ){
-    char *zSql;
     char zPassPhrase[MX_PASSPHRASE+1];
 #ifndef SQLITE_HAS_CODEC
     printf("WARNING:  The passphrase is a no-op because this build of\n"
@@ -220,12 +280,17 @@ static void db_open(const char *zArchive, int writeFlag, int seeFlag){
 #endif
     memset(zPassPhrase, 0, sizeof(zPassPhrase));
     prompt_for_passphrase("passphrase: ", seeFlag>1, zPassPhrase);
-    zSql = sqlite3_mprintf("PRAGMA key(%Q)", zPassPhrase);
-    sqlite3_exec(db, zSql, 0, 0, 0);
-    sqlite3_free(zSql);
+#ifdef SQLITE_HAS_CODEC
+    sqlite3_key_v2(db, "main", zPassPhrase, -1);
+#endif
   }
   sqlite3_exec(db, "BEGIN", 0, 0, 0);
   sqlite3_exec(db, zSchema, 0, 0, 0);
+  rc = sqlite3_exec(db, "SELECT 1 FROM sqlar LIMIT 1", 0, 0, 0);
+  if( rc!=SQLITE_OK ){
+    fprintf(stderr, "File [%s] is not an SQLite archive\n", zArchive);
+    exit(1);
+  }
 }
 
 /*
@@ -418,7 +483,7 @@ static void add_file(
       }else{
         printf("  added: %s\n", zFilename);
       }
-    } 
+    }
   }else{
     sqlite3_bind_int(pStmt, 4, 0);
     sqlite3_bind_null(pStmt, 5);
@@ -448,48 +513,16 @@ static void add_file(
   }
 }
 
-/*
-** List of command-line arguments
-*/
-typedef struct NameList NameList;
-struct NameList {
-  char **azName;   /* List of names */
-  int nName;       /* Number of names on the list */
-};
-
-/*
-** Inplementation of SQL function "name_on_list(X)".  Return
-** true if X is on the list of names given on the command-line.
-*/
-static void name_on_list(
-  sqlite3_context *context,
-  int argc,
-  sqlite3_value **argv
-){
-  NameList *pList = (NameList*)sqlite3_user_data(context);
-  int i;
-  int rc = 0;
-  const char *z = (const char*)sqlite3_value_text(argv[0]);
-  if( z!=0 ){
-    for(i=0; i<pList->nName; i++){
-      if( strcmp(pList->azName[i], z)==0 ){
-        rc = 1;
-        break;
-      }
-    }
-  }
-  sqlite3_result_int(context, rc);
-}
-
 int main(int argc, char **argv){
   const char *zArchive = 0;
-  char **azFiles = 0;
+  const char **azFiles = 0;
   int nFiles = 0;
   int listFlag = 0;
   int extractFlag = 0;
   int verboseFlag = 0;
   int noCompress = 0;
   int seeFlag = 0;
+  int deleteFlag = 0;
   int i, j;
 
   if( sqlite3_strglob("*/unsqlar", argv[0])==0 ){
@@ -504,6 +537,7 @@ int main(int argc, char **argv){
           case 'v':   verboseFlag = 1; break;
           case 'x':   extractFlag = 1; break;
           case 'e':   seeFlag++;       break;
+          case 'd':   deleteFlag = 1;  break;
           case '-':   break;
           default:    showHelp(argv[0]);
         }
@@ -511,20 +545,24 @@ int main(int argc, char **argv){
     }else if( zArchive==0 ){
       zArchive = argv[i];
     }else{
-      azFiles = &argv[i];
+      azFiles = (const char**)&argv[i];
       nFiles = argc - i;
       break;
     }
   }
   if( zArchive==0 ) showHelp(argv[0]);
-  if( listFlag ){
-    db_open(zArchive, 0, seeFlag);
+  if( listFlag || deleteFlag ){
+    if( deleteFlag && nFiles==0 ){
+      errorMsg("Specify one or more files to delete on the command-line");
+    }
+    db_open(zArchive, deleteFlag, seeFlag, azFiles, nFiles);
     if( verboseFlag ){
       db_prepare(
           "SELECT name, sz, length(data), mode, datetime(mtime,'unixepoch')"
-          " FROM sqlar ORDER BY name"
+          " FROM sqlar WHERE name_on_list(name) ORDER BY name"
       );
       while( sqlite3_step(pStmt)==SQLITE_ROW ){
+        if( deleteFlag ) printf("DELETE ");
         printf("%10d %10d %03o %s %s\n", 
                sqlite3_column_int(pStmt, 1),
                sqlite3_column_int(pStmt, 2),
@@ -534,27 +572,22 @@ int main(int argc, char **argv){
       }
     }else{
       db_prepare(
-          "SELECT name FROM sqlar ORDER BY name"
+          "SELECT name FROM sqlar WHERE name_on_list(name) ORDER BY name"
       );
       while( sqlite3_step(pStmt)==SQLITE_ROW ){
+        if( deleteFlag ) printf("DELETE ");
         printf("%s\n", sqlite3_column_text(pStmt,0));
       }
+    }
+    if( deleteFlag ){
+      sqlite3_exec(db, "DELETE FROM sqlar WHERE name_on_list(name)", 0, 0, 0);
     }
     db_close(1);
   }else if( extractFlag ){
     const char *zSql;
-    db_open(zArchive, 0, seeFlag);
-    if( nFiles ){
-      NameList x;
-      x.azName = azFiles;
-      x.nName = nFiles;
-      sqlite3_create_function(db, "name_on_list", 1, SQLITE_UTF8,
-                              (char*)&x, name_on_list, 0, 0);
-      zSql = "SELECT name, mode, mtime, sz, data FROM sqlar"
-             " WHERE name_on_list(filename)";
-    }else{
-      zSql = "SELECT name, mode, mtime, sz, data FROM sqlar";
-    }
+    db_open(zArchive, 0, seeFlag, azFiles, nFiles);
+    zSql = "SELECT name, mode, mtime, sz, data FROM sqlar"
+           " WHERE name_on_list(name)";
     db_prepare(zSql);
     while( sqlite3_step(pStmt)==SQLITE_ROW ){
       const char *zFN = (const char*)sqlite3_column_text(pStmt, 0);
@@ -574,8 +607,10 @@ int main(int argc, char **argv){
     }
     db_close(1);
   }else{
-    if( azFiles==0 ) showHelp(argv[0]);
-    db_open(zArchive, 1, seeFlag);
+    if( azFiles==0 ){
+      errorMsg("Specify one or more files to add on the command-line");
+    }
+    db_open(zArchive, 1, seeFlag, 0, 0);
     for(i=0; i<nFiles; i++){
       add_file(azFiles[i], verboseFlag, noCompress);
     }

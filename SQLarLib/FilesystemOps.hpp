@@ -3,8 +3,7 @@
 
 #include <cstdint>
 
-#include "Result.hpp"
-
+#include "../../HandyCpp/Handy.hpp"
 
 // Make sure the parent directory for zName exists.  Create it if it does not exist.
 Result make_parent_directory(const char *zName);
@@ -40,13 +39,13 @@ Result decompress_arr(
 // Return the original size and the compressed size of the file in
 // *pSizeOrig and *pSizeCompr, respectively.  If these two values are
 // equal, that means the file was not compressed.
-ResultT<char *> read_reg_file(
+ResultV<char *> read_reg_file(
 	const char *zFilename,    // Name of file to read
 	int *pSizeOrig,           // Write original file size here
 	int *pSizeCompr,          // Write compressed file size here
 	bool noCompress);         // Do not compress if true
 
-ResultT<char *> compress_arr(
+ResultV<char *> compress_arr(
 	unsigned long int nIn,    // Source data num bytes
 	const char * dIn,         // Source data.
 	unsigned long int * nOut, // Write compressed file size here

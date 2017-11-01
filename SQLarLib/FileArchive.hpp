@@ -6,8 +6,8 @@
 #include <vector>
 #include <cstdint>
 
-#include "Result.hpp"
-#include "Private.hpp"
+#include "../../HandyCpp/Handy.hpp"
+#include "../../HandyCpp/HandyExtended.hpp"
 
 namespace SQLarLib
 {
@@ -25,8 +25,8 @@ namespace SQLarLib
 			OpenReadOnly    // Open existing archive, or fail if the file doesn't already exist. DO NOT ALLOW WRITE OPERATIONS.
 		};
 
-		static ResultT<std::unique_ptr<FileArchive>> Open(std::string filepath, Mode mode);
-		static void                                  AbortRollback(std::unique_ptr<FileArchive> fa);
+		static ResultV<FileArchive *>    Open(std::string filepath, Mode mode);
+		static void                      AbortRollback(std::unique_ptr<FileArchive> fa);
 
 		Result                           Add       (std::string dstArchivePath, std::string srcOSPath, bool noCompress = false, bool verbose = true);
 		Result                           Delete    (std::string archivePath);
@@ -34,12 +34,12 @@ namespace SQLarLib
 		Result                           Extract   (std::string srcArchivePath, std::string dstOSPath, bool verbose = true);
 		Result                           ExtractAll(std::string dstOSDirPath, bool verbose = true);
 
-		ResultT<std::tuple<char *, size_t>>   
+		ResultV<std::tuple<char *, size_t>>   
 										 Get(std::string archivePath);
 		Result                           Put       (std::string archivePath, char const * ptr, int numBytes, bool noCompress = false, bool verbose = true);
 
 		std::vector<std::string>         Filenames ();
-		std::vector<std::string>         Filenames (std::string searchSubstr);
+		bool                             HasFile   (std::string filename);
 
 		void                             PrintFilenames();
 		void                             PrintFileinfos();

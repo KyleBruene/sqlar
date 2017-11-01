@@ -1,6 +1,7 @@
 
 #include "FilesystemOps.hpp"
 
+#include <string>
 #include <io.h>
 #include <process.h> // for getpid() and the exec..() family
 #include <direct.h>  // for _getcwd() and _chdir()
@@ -14,8 +15,6 @@
 #endif
 
 #include "miniz.c" // This looks stooopid, but it's actually how you're supposed to use this single file library...
-
-#include "Result.hpp"
 
 // Values for the second argument to access. These may be OR'd together.
 static int const R_OK = 4; // Test for read permission.
@@ -218,7 +217,7 @@ Result write_file(
 // Return the original size and the compressed size of the file in
 // *pSizeOrig and *pSizeCompr, respectively.  If these two values are
 // equal, that means the file was not compressed.
-ResultT<char *> read_reg_file(
+ResultV<char *> read_reg_file(
 	const char *zFilename,    // Name of file to read
 	int *pSizeOrig,           // Write original file size here
 	int *pSizeCompr,          // Write compressed file size here
@@ -229,7 +228,7 @@ ResultT<char *> read_reg_file(
 	auto err = fopen_s(&in, zFilename, "rb");
 
 	if (in == 0 || err != 0) 
-		return ResultT<char *>(false, std::string("Could not open file for reading: ") + zFilename);
+		return ResultV<char *>(false, std::string("Could not open file for reading: ") + zFilename);
 
 	fseek(in, 0, SEEK_END);
 
@@ -241,14 +240,14 @@ ResultT<char *> read_reg_file(
 	if (zIn == 0)
 	{
 		fclose(in);
-		return ResultT<char *>(false, std::string("Could not new[] alloc for ") + std::to_string(nIn+1) + "bytes");
+		return ResultV<char *>(false, std::string("Could not new[] alloc for ") + std::to_string(nIn+1) + "bytes");
 	}
 
 	if (nIn > 0 && fread(zIn, nIn, 1, in) != 1)
 	{
 		delete[] zIn;
 		fclose(in);
-		return ResultT<char *>(false, std::string("unable to read ") + std::to_string(nIn) + " bytes of file " + zFilename);
+		return ResultV<char *>(false, std::string("unable to read ") + std::to_string(nIn) + " bytes of file " + zFilename);
 	}
 		
 	fclose(in);
@@ -256,7 +255,7 @@ ResultT<char *> read_reg_file(
 	if (noCompress)
 	{
 		*pSizeOrig = *pSizeCompr = nIn;
-		return ResultT<char *>(true, zIn);
+		return ResultV<char *>(true, zIn);
 	}
 
 	unsigned long int nCompr = 13 + nIn + (nIn + 999) / 1000;
@@ -264,7 +263,7 @@ ResultT<char *> read_reg_file(
 	if (zCompr == 0)
 	{
 		delete[] zIn;
-		return ResultT<char *>(false, std::string("Could not new[] alloc for ") + std::to_string(nCompr + 1) + "bytes");
+		return ResultV<char *>(false, std::string("Could not new[] alloc for ") + std::to_string(nCompr + 1) + "bytes");
 	}
 
 	int rc = compress((Bytef*)zCompr, &nCompr, (const Bytef*)zIn, nIn);
@@ -273,7 +272,7 @@ ResultT<char *> read_reg_file(
 	{
 		delete[] zIn;
 		delete[] zCompr;
-		return ResultT<char *>(false, std::string("Cannot compress ") + zFilename);
+		return ResultV<char *>(false, std::string("Cannot compress ") + zFilename);
 	}
 
 	if (nIn > (long int)nCompr) 
@@ -281,19 +280,19 @@ ResultT<char *> read_reg_file(
 		delete[] zIn;
 		*pSizeOrig = nIn;
 		*pSizeCompr = (int)nCompr;
-		return ResultT<char *>(true, zCompr);
+		return ResultV<char *>(true, zCompr);
 	}
 	else 
 	{
 		delete[] zCompr;
 		*pSizeOrig = *pSizeCompr = nIn;
-		return ResultT<char *>(true, zIn);
+		return ResultV<char *>(true, zIn);
 	}
 
-	return ResultT<char *>(false, "Failed to free temporary buffer");
+	return ResultV<char *>(false, "Failed to free temporary buffer");
 }
 
-ResultT<char *> compress_arr(
+ResultV<char *> compress_arr(
 	unsigned long int   nIn,  // Source data num bytes
 	const char *        dIn,  // Source data.
 	unsigned long int * nOut, // Write compressed file size here
@@ -306,27 +305,27 @@ ResultT<char *> compress_arr(
 		char * dOut = new (std::nothrow) char[nIn]();
 		memcpy(dOut, dIn, nIn);
 
-		return ResultT<char *>(true, dOut);
+		return ResultV<char *>(true, dOut);
 	}
 
 	*nOut = 13 + nIn + (nIn + 999) / 1000;
 	char * dOut = new (std::nothrow) char[*nOut]();
 	
 	if (dOut == 0)
-		return ResultT<char *>(false, std::string("Could not new[] alloc for ") + std::to_string(*nOut) + "bytes");
+		return ResultV<char *>(false, std::string("Could not new[] alloc for ") + std::to_string(*nOut) + "bytes");
 
 	int rc = compress((Bytef*)dOut, nOut, (const Bytef*)dIn, nIn);
 
 	if (rc != Z_OK)
 	{
 		delete[] dOut;
-		return ResultT<char *>(false, "Cannot compress.");
+		return ResultV<char *>(false, "Cannot compress.");
 	}
 
 	if (nIn > *nOut)
 	{
 		std::cout << "Compressed: " << nIn << " to " << *nOut << std::endl;
-		return ResultT<char *>(true, dOut);
+		return ResultV<char *>(true, dOut);
 	}
 	else 
 	{
@@ -334,5 +333,5 @@ ResultT<char *> compress_arr(
 		return compress_arr(nIn, dIn, nOut, true);
 	}
 
-	return ResultT<char *>(false, "Unlikely error encountered (threading or memory currupt?)");
+	return ResultV<char *>(false, "Unlikely error encountered (threading or memory currupt?)");
 }

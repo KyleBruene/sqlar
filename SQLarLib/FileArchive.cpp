@@ -148,7 +148,7 @@ FileArchive::~FileArchive() // Must be above any uses of "std::unique_ptr<FileAr
 Handy::ResultV<FileArchive *> 
 FileArchive::Open(std::string filepath, FileArchive::Mode mode) // ALWAYS OpenExistingOnly
 {
-	using MyHandy::Result = Handy::ResultV<FileArchive *>;
+	using MyResult = Handy::ResultV<FileArchive *>;
 
 	std::unique_ptr<FileArchive> fa(new FileArchive());
 	

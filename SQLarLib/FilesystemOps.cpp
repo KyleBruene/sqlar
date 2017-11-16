@@ -26,7 +26,7 @@ static int const F_OK = 0; // Test for existence.
 
 
 // Make sure the parent directory for zName exists.  Create it if it does not exist.
-Result make_parent_directory(const char *zName) 
+Handy::Result make_parent_directory(const char *zName) 
 {
 
 	char *zParent;
@@ -44,7 +44,7 @@ Result make_parent_directory(const char *zName)
 		std::snprintf(zParent, sz + 1, fmt, j, zName);
 
 		if (zParent == 0)
-			return Result(false, "mprintf failed\n");
+			return Handy::Result(false, "mprintf failed\n");
 
 		while (j > 0 && zParent[j] == '/') 
 			j--;
@@ -65,7 +65,7 @@ Result make_parent_directory(const char *zName)
 			{
 				std::string reason = std::string("cannot create directory: ") + std::string(zParent);
 				delete [] zParent;
-				return Result(false, reason);
+				return Handy::Result(false, reason);
 
 			}
 		}
@@ -73,49 +73,49 @@ Result make_parent_directory(const char *zName)
 		delete [] zParent;
 	}
 
-	return Result(true);
+	return Handy::Result(true);
 }
 
 // Error out if there are any issues with the given filename
-Result check_filename(const char *z) 
+Handy::Result check_filename(const char *z) 
 {
 	std::string zs(z);
 
 	if (zs.compare(0, 3, "../") == 0)
-		return Result(false, std::string("Path begins with '../': ") + std::string(z));
+		return Handy::Result(false, std::string("Path begins with '../': ") + std::string(z));
 
 	if (zs.find("/../", 0) !=  std::string::npos)
-		return Result(false, std::string("Filename contains '/../' in its path: ") + std::string(z));
+		return Handy::Result(false, std::string("Filename contains '/../' in its path: ") + std::string(z));
 
 	if (zs.find("\\", 0) !=  std::string::npos)
-		return Result(false, std::string("Filename with '\\' in its name: ") + std::string(z));
+		return Handy::Result(false, std::string("Filename with '\\' in its name: ") + std::string(z));
 
-	return Result(true);
+	return Handy::Result(true);
 }
 
 // Decompress a file or blob.
 //
 // If sz>nCompr that means that the content is compressed and needs to be
 // decompressed.
-Result decompress_arr(
+Handy::Result decompress_arr(
 	int           sz,        // Size of file as stored on disk
 	char *        pOut,      // Destination (post decompression), should be sz large
 	int           nCompr,    // Size of content (prior to decompression)
 	const char *  pCompr)    // Content (usually compressed)
 {
 	if (sz == nCompr)
-		return Result(false, "Pre and Post decompress sizes are the same.");
+		return Handy::Result(false, "Pre and Post decompress sizes are the same.");
 		
 	unsigned long int nOut = sz;
 
 	int rc = uncompress((Bytef *)pOut, &nOut, (const Bytef*)pCompr, nCompr);
 
 	if (rc != Z_OK)
-		return Result(false, "Decompression failed.");
+		return Handy::Result(false, "Decompression failed.");
 
 	std::cout << "Decompressed: " << nCompr << " to " << sz << std::endl;
 
-	return Result(true);
+	return Handy::Result(true);
 }
 
 // Write a file or a directory.
@@ -125,7 +125,7 @@ Result decompress_arr(
 //
 // If sz>nCompr that means that the content is compressed and needs to be
 // decompressed before writing.
-Result write_file(
+Handy::Result write_file(
 	const char *  zFilename, // Store content in this file
 	int           iMode,     // The unix-style access mode
 	int64_t       mtime,     // Modification time
@@ -133,7 +133,7 @@ Result write_file(
 	const char *  pCompr,    // Content (usually compressed)
 	int           nCompr)    // Size of content (prior to decompression)
 {
-	Result mpdRes = make_parent_directory(zFilename);
+	Handy::Result mpdRes = make_parent_directory(zFilename);
 
 	if (!mpdRes.Success)
 		return mpdRes;
@@ -147,7 +147,7 @@ Result write_file(
 		#endif
 
 		if (rc) 
-			return Result(false, std::string("cannot make directory: ") + "zFilename");
+			return Handy::Result(false, std::string("cannot make directory: ") + "zFilename");
 	}
 
 	FILE * out = NULL;
@@ -155,14 +155,14 @@ Result write_file(
 	auto err = fopen_s(&out, zFilename, "wb");
 
 	if (out == 0 || err != 0) 
-		return Result(false, std::string("cannot open for writing: ") + zFilename);
+		return Handy::Result(false, std::string("cannot open for writing: ") + zFilename);
 
 	if (sz == nCompr) 
 	{
 		if (sz > 0 && fwrite(pCompr, sz, 1, out) != 1)
 		{
 			fclose(out);
-			return Result(false, std::string("failed to write: ") + zFilename);
+			return Handy::Result(false, std::string("failed to write: ") + zFilename);
 		}
 	}
 	else 
@@ -173,7 +173,7 @@ Result write_file(
 		{
 			fclose(out);
 			delete[] pOut;
-			return Result(false, std::string("cannot allocate ") + std::to_string(sz) + "bytes");
+			return Handy::Result(false, std::string("cannot allocate ") + std::to_string(sz) + "bytes");
 		}
 
 		unsigned long int nOut = sz;
@@ -184,14 +184,14 @@ Result write_file(
 		{
 			fclose(out);
 			delete[] pOut;
-			return Result(false, std::string("uncompress failed for ") + zFilename);
+			return Handy::Result(false, std::string("uncompress failed for ") + zFilename);
 		}
 
 		if (nOut > 0 && fwrite(pOut, nOut, 1, out) != 1)
 		{
 			fclose(out);
 			delete[] pOut;
-			return Result(false, std::string("failed to write: ") + zFilename);
+			return Handy::Result(false, std::string("failed to write: ") + zFilename);
 		}
 
 		delete [] pOut;
@@ -202,9 +202,9 @@ Result write_file(
 	int rc = _chmod(zFilename, iMode & 0777);
 
 	if (rc) 
-		return Result(false, std::string("cannot change mode to ") + std::to_string(iMode) + "File: " + zFilename);
+		return Handy::Result(false, std::string("cannot change mode to ") + std::to_string(iMode) + "File: " + zFilename);
 
-	return Result(true);
+	return Handy::Result(true);
 }
 
 
@@ -217,7 +217,7 @@ Result write_file(
 // Return the original size and the compressed size of the file in
 // *pSizeOrig and *pSizeCompr, respectively.  If these two values are
 // equal, that means the file was not compressed.
-ResultV<char *> read_reg_file(
+Handy::ResultV<char *> read_reg_file(
 	const char *zFilename,    // Name of file to read
 	int *pSizeOrig,           // Write original file size here
 	int *pSizeCompr,          // Write compressed file size here
@@ -228,7 +228,7 @@ ResultV<char *> read_reg_file(
 	auto err = fopen_s(&in, zFilename, "rb");
 
 	if (in == 0 || err != 0) 
-		return ResultV<char *>(false, std::string("Could not open file for reading: ") + zFilename);
+		return Handy::ResultV<char *>(false, std::string("Could not open file for reading: ") + zFilename);
 
 	fseek(in, 0, SEEK_END);
 
@@ -240,14 +240,14 @@ ResultV<char *> read_reg_file(
 	if (zIn == 0)
 	{
 		fclose(in);
-		return ResultV<char *>(false, std::string("Could not new[] alloc for ") + std::to_string(nIn+1) + "bytes");
+		return Handy::ResultV<char *>(false, std::string("Could not new[] alloc for ") + std::to_string(nIn+1) + "bytes");
 	}
 
 	if (nIn > 0 && fread(zIn, nIn, 1, in) != 1)
 	{
 		delete[] zIn;
 		fclose(in);
-		return ResultV<char *>(false, std::string("unable to read ") + std::to_string(nIn) + " bytes of file " + zFilename);
+		return Handy::ResultV<char *>(false, std::string("unable to read ") + std::to_string(nIn) + " bytes of file " + zFilename);
 	}
 		
 	fclose(in);
@@ -255,7 +255,7 @@ ResultV<char *> read_reg_file(
 	if (noCompress)
 	{
 		*pSizeOrig = *pSizeCompr = nIn;
-		return ResultV<char *>(true, zIn);
+		return Handy::ResultV<char *>(true, zIn);
 	}
 
 	unsigned long int nCompr = 13 + nIn + (nIn + 999) / 1000;
@@ -263,7 +263,7 @@ ResultV<char *> read_reg_file(
 	if (zCompr == 0)
 	{
 		delete[] zIn;
-		return ResultV<char *>(false, std::string("Could not new[] alloc for ") + std::to_string(nCompr + 1) + "bytes");
+		return Handy::ResultV<char *>(false, std::string("Could not new[] alloc for ") + std::to_string(nCompr + 1) + "bytes");
 	}
 
 	int rc = compress((Bytef*)zCompr, &nCompr, (const Bytef*)zIn, nIn);
@@ -272,7 +272,7 @@ ResultV<char *> read_reg_file(
 	{
 		delete[] zIn;
 		delete[] zCompr;
-		return ResultV<char *>(false, std::string("Cannot compress ") + zFilename);
+		return Handy::ResultV<char *>(false, std::string("Cannot compress ") + zFilename);
 	}
 
 	if (nIn > (long int)nCompr) 
@@ -280,19 +280,19 @@ ResultV<char *> read_reg_file(
 		delete[] zIn;
 		*pSizeOrig = nIn;
 		*pSizeCompr = (int)nCompr;
-		return ResultV<char *>(true, zCompr);
+		return Handy::ResultV<char *>(true, zCompr);
 	}
 	else 
 	{
 		delete[] zCompr;
 		*pSizeOrig = *pSizeCompr = nIn;
-		return ResultV<char *>(true, zIn);
+		return Handy::ResultV<char *>(true, zIn);
 	}
 
-	return ResultV<char *>(false, "Failed to free temporary buffer");
+	return Handy::ResultV<char *>(false, "Failed to free temporary buffer");
 }
 
-ResultV<char *> compress_arr(
+Handy::ResultV<char *> compress_arr(
 	unsigned long int   nIn,  // Source data num bytes
 	const char *        dIn,  // Source data.
 	unsigned long int * nOut, // Write compressed file size here
@@ -305,27 +305,27 @@ ResultV<char *> compress_arr(
 		char * dOut = new (std::nothrow) char[nIn]();
 		memcpy(dOut, dIn, nIn);
 
-		return ResultV<char *>(true, dOut);
+		return Handy::ResultV<char *>(true, dOut);
 	}
 
 	*nOut = 13 + nIn + (nIn + 999) / 1000;
 	char * dOut = new (std::nothrow) char[*nOut]();
 	
 	if (dOut == 0)
-		return ResultV<char *>(false, std::string("Could not new[] alloc for ") + std::to_string(*nOut) + "bytes");
+		return Handy::ResultV<char *>(false, std::string("Could not new[] alloc for ") + std::to_string(*nOut) + "bytes");
 
 	int rc = compress((Bytef*)dOut, nOut, (const Bytef*)dIn, nIn);
 
 	if (rc != Z_OK)
 	{
 		delete[] dOut;
-		return ResultV<char *>(false, "Cannot compress.");
+		return Handy::ResultV<char *>(false, "Cannot compress.");
 	}
 
 	if (nIn > *nOut)
 	{
 		std::cout << "Compressed: " << nIn << " to " << *nOut << std::endl;
-		return ResultV<char *>(true, dOut);
+		return Handy::ResultV<char *>(true, dOut);
 	}
 	else 
 	{
@@ -333,5 +333,5 @@ ResultV<char *> compress_arr(
 		return compress_arr(nIn, dIn, nOut, true);
 	}
 
-	return ResultV<char *>(false, "Unlikely error encountered (threading or memory currupt?)");
+	return Handy::ResultV<char *>(false, "Unlikely error encountered (threading or memory currupt?)");
 }

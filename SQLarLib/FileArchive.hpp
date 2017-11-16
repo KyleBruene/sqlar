@@ -25,18 +25,18 @@ namespace SQLarLib
 			OpenReadOnly    // Open existing archive, or fail if the file doesn't already exist. DO NOT ALLOW WRITE OPERATIONS.
 		};
 
-		static ResultV<FileArchive *>    Open(std::string filepath, Mode mode);
+		static Handy::ResultV<FileArchive *>    Open(std::string filepath, Mode mode);
 		static void                      AbortRollback(std::unique_ptr<FileArchive> fa);
 
-		Result                           Add       (std::string dstArchivePath, std::string srcOSPath, bool noCompress = false, bool verbose = true);
-		Result                           Delete    (std::string archivePath);
+		Handy::Result                           Add       (std::string dstArchivePath, std::string srcOSPath, bool noCompress = false, bool verbose = true);
+		Handy::Result                           Delete    (std::string archivePath);
 	
-		Result                           Extract   (std::string srcArchivePath, std::string dstOSPath, bool verbose = true);
-		Result                           ExtractAll(std::string dstOSDirPath, bool verbose = true);
+		Handy::Result                           Extract   (std::string srcArchivePath, std::string dstOSPath, bool verbose = true);
+		Handy::Result                           ExtractAll(std::string dstOSDirPath, bool verbose = true);
 
-		ResultV<std::tuple<char *, size_t>>   
+		Handy::ResultV<std::tuple<char *, size_t>>   
 										 Get(std::string archivePath);
-		Result                           Put       (std::string archivePath, char const * ptr, int numBytes, bool noCompress = false, bool verbose = true);
+		Handy::Result                           Put       (std::string archivePath, char const * ptr, int numBytes, bool noCompress = false, bool verbose = true);
 
 		std::vector<std::string>         Filenames ();
 		bool                             HasFile   (std::string filename);

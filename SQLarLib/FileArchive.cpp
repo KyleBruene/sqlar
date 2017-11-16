@@ -6,9 +6,14 @@
 #include <cstring>
 #include <cassert>
 #include <cctype>
-#include <io.h>
-#include <process.h> // for getpid() and the exec..() family
-#include <direct.h>  // for _getcwd() and _chdir()
+#ifdef __unix
+	#include <unistd.h>
+	#define _access access
+#else
+	#include <io.h>
+	#include <process.h> // for getpid() and the exec..() family
+	#include <direct.h>  // for _getcwd() and _chdir()
+#endif
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <time.h>
@@ -25,18 +30,24 @@
 #include <dirent.h>
 #endif
 
+#ifdef __unix
+#include <sqlite3.h>
+#else
 #include "sqlite3.h"
+#endif
 
 #include "FilesystemOps.hpp"
 #include "FileArchive.hpp"
 
+#ifndef __unix
 // Values for the second argument to access. These may be OR'd together.
 static int const R_OK = 4; // Test for read permission.
 static int const W_OK = 2; // Test for write permission.
-#if !defined(_WIN32)
-static int const X_OK = 1; // execute permission - unsupported in Windows
-#endif
 static int const F_OK = 0; // Test for existence.
+#if !defined(_WIN32)
+	static int const X_OK = 1; // execute permission - unsupported in Windows
+#endif
+#endif
 
 void delete_arr_ptr(void * pointer)
 {
@@ -213,6 +224,10 @@ FileArchive::Open(std::string filepath, FileArchive::Mode mode) // ALWAYS OpenEx
 	static char const * zSqlDELETEALL     = "DELETE FROM sqlar";
 
 	int rc = sqlite3_open_v2(filepath.c_str(), &fa->impl->m_db, fg, 0);
+
+	//if (rc == 0) {
+	//	sqlite3_exec(fa->impl->m_db, "PRAGMA journal_mode = WAL;", NULL, 0, 0);
+	//}
 
 	if (rc)
 		return MyResult(false, std::string("Cannot open archive [") + filepath + "]: " + sqlite3_errmsg(fa->impl->m_db));

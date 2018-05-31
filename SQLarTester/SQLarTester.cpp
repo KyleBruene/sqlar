@@ -2,11 +2,23 @@
 #include <memory>
 #include <iostream>
 
-#include "FileArchive.hpp"
+#include  "FileArchive.hpp"
 
 //This tester hasn't been updated for changes to sqlarlib.
 
-void try_FailPrintExit(Result const & res)
+using namespace SQLarLib;
+
+void try_FailPrintExit(Handy::Result const & res)
+{
+	if (res.Success)
+		return;
+
+	std::cerr << res.Reason;
+	exit(4);
+}
+
+template <typename T>
+void try_FailPrintExit(Handy::ResultV<T> const & res)
 {
 	if (res.Success)
 		return;
@@ -30,25 +42,25 @@ int main()
 
 	std::cout << "Successful!" << std::endl;
 
-	std::unique_ptr<FileArchive> fa = std::move(fao.OpValue.value());
+	FileArchive * fa = fao.OpValue.value();
 
-	try_FailPrintExit(fa->Add("testFile1.png", "C:\\testFile.png", false, true));
-	try_FailPrintExit(fa->Add("testFile2.png", "C:\\testFile.png", false, true));
-	try_FailPrintExit(fa->Add("testFile3.png", "C:\\testFile.png", false, true));
+	try_FailPrintExit(fa->Put("testFile1.png", "C:\\testFile.png", 15, false, true));
+	try_FailPrintExit(fa->Put("testFile2.png", "C:\\testFile.png", 15, false, true));
+	try_FailPrintExit(fa->Put("testFile3.png", "C:\\testFile.png", 15, false, true));
 
 	fa->PrintFilenames();
 
-	try_FailPrintExit(fa->Add("testFile4.png", "C:\\testFile.png", false, true));
-	try_FailPrintExit(fa->Add("testFile5.png", "C:\\testFile.png", false, true));
+	try_FailPrintExit(fa->Put("testFile4.png", "C:\\testFile.png", 15, false, true));
+	try_FailPrintExit(fa->Put("testFile5.png", "C:\\testFile.png", 15, false, true));
 
-	try_FailPrintExit(fa->Extract("testFile1.png", "C:\\resultFile1.png", true));
-	try_FailPrintExit(fa->Extract("testFile2.png", "C:\\resultFile2.png", true));
-	try_FailPrintExit(fa->Extract("testFile3.png", "C:\\resultFile3.png", true));
+	try_FailPrintExit(fa->Get("testFile1.png"));
+	try_FailPrintExit(fa->Get("testFile2.png"));
+	try_FailPrintExit(fa->Get("testFile3.png"));
 
 	fa->PrintFileinfos();
 
-	try_FailPrintExit(fa->Extract("testFile4.png", "C:\\resultFile4.png", true));
-	try_FailPrintExit(fa->Extract("testFile5.png", "C:\\resultFile5.png", true));
+	try_FailPrintExit(fa->Get("testFile4.png"));
+	try_FailPrintExit(fa->Get("testFile5.png"));
 
 	try_FailPrintExit(fa->Delete("testFile3.png"));
 
@@ -62,7 +74,7 @@ int main()
 		exit(5);
 	}
 
-	std::unique_ptr<char[]> arr(std::move(resG.OpValue.value()));
+	char * arr = std::get<0>(resG.OpValue.value());
 
 
 

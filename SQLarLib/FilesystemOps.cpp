@@ -19,7 +19,10 @@
 #include <dirent.h>
 #endif
 
-#include "miniz.c" // This looks stooopid, but it's actually how you're supposed to use this single file library...
+#pragma warning( push )
+#pragma warning( disable : 4334 )  
+	#include "miniz.c" // This looks stooopid, but it's actually how you're supposed to use this single file library...
+#pragma warning( pop )
 
 #ifdef __unix
 	#define fopen_s(pFile,filename,mode) ((*(pFile))=fopen((filename),(mode)))==NULL
@@ -29,13 +32,13 @@
 
 // Values for the second argument to access. These may be OR'd together.
 #ifndef __unix
-// Values for the second argument to access. These may be OR'd together.
-static int const R_OK = 4; // Test for read permission.
-static int const W_OK = 2; // Test for write permission.
-static int const F_OK = 0; // Test for existence.
-#if !defined(_WIN32)
-	static int const X_OK = 1; // execute permission - unsupported in Windows
-#endif
+	// Values for the second argument to access. These may be OR'd together.
+	static int const R_OK = 4; // Test for read permission.
+	static int const W_OK = 2; // Test for write permission.
+	static int const F_OK = 0; // Test for existence.
+	#if !defined(_WIN32)
+		static int const X_OK = 1; // execute permission - unsupported in Windows
+	#endif
 #endif
 
 // Make sure the parent directory for zName exists.  Create it if it does not exist.

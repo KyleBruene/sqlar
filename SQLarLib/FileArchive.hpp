@@ -26,7 +26,7 @@ namespace SQLarLib
 		};
 
 		static Handy::ResultV<FileArchive *>    Open(std::string filepath, Mode mode);
-		static void                      AbortRollback(std::unique_ptr<FileArchive> fa);
+		static void                             AbortRollback(std::unique_ptr<FileArchive> fa);
 
 		Handy::Result                           Add       (std::string dstArchivePath, std::string srcOSPath, bool noCompress = false, bool verbose = true);
 		Handy::Result                           Delete    (std::string archivePath);
@@ -36,7 +36,7 @@ namespace SQLarLib
 
 		Handy::ResultV<std::tuple<char *, size_t>>   
 										 Get(std::string archivePath);
-		Handy::Result                           Put       (std::string archivePath, char const * ptr, int numBytes, bool noCompress = false, bool verbose = true);
+		Handy::Result                    Put(std::string archivePath, char const * ptr, int numBytes, bool noCompress = false, bool verbose = true);
 
 		std::vector<std::string>         Filenames ();
 		bool                             HasFile   (std::string filename);

@@ -31,22 +31,22 @@
 #endif
 
 #ifdef __unix
-#include <sqlite3.h>
+	#include <sqlite3.h>
 #else
-#include "sqlite3.h"
+	#include "sqlite3.h"
 #endif
 
 #include "FilesystemOps.hpp"
 #include "FileArchive.hpp"
 
 #ifndef __unix
-// Values for the second argument to access. These may be OR'd together.
-static int const R_OK = 4; // Test for read permission.
-static int const W_OK = 2; // Test for write permission.
-static int const F_OK = 0; // Test for existence.
-#if !defined(_WIN32)
-	static int const X_OK = 1; // execute permission - unsupported in Windows
-#endif
+	// Values for the second argument to access. These may be OR'd together.
+	static int const R_OK = 4; // Test for read permission.
+	static int const W_OK = 2; // Test for write permission.
+	static int const F_OK = 0; // Test for existence.
+	#if !defined(_WIN32)
+		static int const X_OK = 1; // execute permission - unsupported in Windows
+	#endif
 #endif
 
 void delete_arr_ptr(void * pointer)
@@ -87,7 +87,7 @@ struct FileArchive::Private
 			m_prepStmtREPLACE = 0;
 		}
 
-		if (m_prepStmtCHECKHAS) 
+		if (m_prepStmtCHECKHAS)
 		{
 			sqlite3_finalize(m_prepStmtCHECKHAS);
 			m_prepStmtCHECKHAS = 0;
@@ -132,8 +132,7 @@ struct FileArchive::Private
 	}
 };
 
-FileArchive::FileArchive()
-	: impl(make_impl_nocopy /*make_impl_nocopy*/<FileArchive::Private>())
+FileArchive::FileArchive() : impl(make_impl_nocopy<FileArchive::Private>())
 {
 
 
@@ -151,7 +150,7 @@ FileArchive::Open(std::string filepath, FileArchive::Mode mode) // ALWAYS OpenEx
 	using MyResult = Handy::ResultV<FileArchive *>;
 
 	std::unique_ptr<FileArchive> fa(new FileArchive());
-	
+
 	int fg = 0;
 
 	bool fileExists = _access(filepath.c_str(), F_OK) == 0;
@@ -185,14 +184,14 @@ FileArchive::Open(std::string filepath, FileArchive::Mode mode) // ALWAYS OpenEx
 			{
 				return MyResult(false, std::string("Cannot 'OpenReadOnly' archive, file not found: ") + filepath);
 			}
-						
+
 			fg |= SQLITE_OPEN_READONLY;
 
 			fa->impl->m_ro = true;
 			break;
 
 		case FileArchive::Mode::Create_Replace:
-			
+
 			if (fileExists)
 			{
 				remove(filepath.c_str());
@@ -225,18 +224,20 @@ FileArchive::Open(std::string filepath, FileArchive::Mode mode) // ALWAYS OpenEx
 
 	int rc = sqlite3_open_v2(filepath.c_str(), &fa->impl->m_db, fg, 0);
 
-	//if (rc == 0) {
-	//	sqlite3_exec(fa->impl->m_db, "PRAGMA journal_mode = WAL;", NULL, 0, 0);
-	//}
-
 	if (rc)
 		return MyResult(false, std::string("Cannot open archive [") + filepath + "]: " + sqlite3_errmsg(fa->impl->m_db));
 
-	if (sqlite3_exec(fa->impl->m_db, "BEGIN", 0, 0, 0))
-		return MyResult(false, "Failed BEGIN on archive.");
+	if (sqlite3_exec(fa->impl->m_db, "PRAGMA journal_mode=WAL;", 0, 0, 0))
+		return MyResult(false, "Failed enable WAL on archive.");
+
+	//if (sqlite3_exec(fa->impl->m_db, "PRAGMA wal_autocheckpoint=20;", 0, 0, 0))
+	//	std::cerr << "Failed to tighten WAL autocheckpointing.";
+
+	//if (sqlite3_exec(fa->impl->m_db, "BEGIN", 0, 0, 0))
+	//	return MyResult(false, "Failed BEGIN on archive.");
 
 	if (sqlite3_exec(fa->impl->m_db, zSchema, 0, 0, 0))
-		return MyResult(false, "Failed to execute scema init on archive.");
+		return MyResult(false, "Failed to execute schema init on archive.");
 
 	Handy::Result resPrepReplace = fa->impl->db_prepare(zSqlREPLACE, &fa->impl->m_prepStmtREPLACE);
 	if (!resPrepReplace.Success)
@@ -273,7 +274,7 @@ FileArchive::Open(std::string filepath, FileArchive::Mode mode) // ALWAYS OpenEx
 	return MyResult(true, fa.release());
 }
 
-// static 
+// static
 void FileArchive::AbortRollback(std::unique_ptr<FileArchive> fa)
 {
 	fa->impl->db_close(0);
@@ -322,12 +323,10 @@ Handy::Result FileArchive::Add(std::string dstArchivePath, std::string srcOSPath
 
 	Handy::ResultV<char *> rRes = read_reg_file(zFilenameSrcOSPath, &szOrig, &szCompr, noCompress);
 
-	if (!rRes.Success || !rRes.OpValue)
-	{
+	if (!rRes.Success || !rRes.OpValue.has_value())
 		return Handy::Result(false, rRes.Reason);
-	}
 
-	char * zContent = *rRes.OpValue;
+	char * zContent = rRes.OpValue.value();
 
 	sqlite3_bind_int (impl->m_prepStmtREPLACE, 4, szOrig);
 	sqlite3_bind_blob(impl->m_prepStmtREPLACE, 5, zContent, szCompr, delete_arr_ptr);
@@ -510,7 +509,7 @@ bool FileArchive::HasFile(std::string filename)
 {
 	if (sqlite3_reset(impl->m_prepStmtCHECKHAS) || sqlite3_clear_bindings(impl->m_prepStmtCHECKHAS))
 		std::cerr << "Unable to reset/clear old state for CHECKHAS prepared statment.";
-	
+
 	sqlite3_bind_text(impl->m_prepStmtCHECKHAS, 1, filename.c_str(), -1, SQLITE_TRANSIENT);
 
 	if (sqlite3_step(impl->m_prepStmtCHECKHAS) == SQLITE_ROW)
@@ -522,7 +521,7 @@ bool FileArchive::HasFile(std::string filename)
 
 Handy::ResultV<std::tuple<char *, size_t>>   
 FileArchive::Get(std::string archivePath)
-{				
+{
 	using MyResult = Handy::ResultV<std::tuple<char *, size_t>>;
 
 	if (sqlite3_reset(impl->m_prepStmtEXTRACT) || sqlite3_clear_bindings(impl->m_prepStmtEXTRACT))
@@ -546,7 +545,7 @@ FileArchive::Get(std::string archivePath)
 	sqlite3_int64 mtime  = sqlite3_column_int64(impl->m_prepStmtEXTRACT, 2);  // Modification time
 	int           sz     = sqlite3_column_int  (impl->m_prepStmtEXTRACT, 3);  // Size of file as stored on disk
 	const char *  pCompr = reinterpret_cast<const char *>(
-							sqlite3_column_blob (impl->m_prepStmtEXTRACT, 4)); // Content (usually compressed)
+	                       sqlite3_column_blob (impl->m_prepStmtEXTRACT, 4)); // Content (usually compressed)
 	int           nCompr = sqlite3_column_bytes(impl->m_prepStmtEXTRACT, 4);  // Size of content (prior to decompression)
 
 	char * pOut = new (std::nothrow) char[sz]();
@@ -569,7 +568,7 @@ FileArchive::Get(std::string archivePath)
 	//	<< (int)pOut[2]  << " " 
 	//	<< (int)pOut[3]  << " " 
 	//	<< (int)pOut[4]  << "}" << std::endl;
-								
+
 	return MyResult(true, std::tuple<char *, size_t>(pOut, sz));
 }
 
@@ -615,8 +614,8 @@ Handy::Result FileArchive::Put(std::string archivePath, char const * ptr, int nu
 	if (!rRes.Success)
 		return Handy::Result(false, rRes.Reason);
 
-	char * ptrZ = *rRes.OpValue;
-								
+	char * ptrZ = rRes.OpValue.value();
+
 	sqlite3_bind_int (impl->m_prepStmtREPLACE, 4, numBytes);
 	sqlite3_bind_blob(impl->m_prepStmtREPLACE, 5, ptrZ, szZ, delete_arr_ptr);
 

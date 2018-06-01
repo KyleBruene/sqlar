@@ -72,22 +72,22 @@ void delete_arr_ptr(void * pointer)
 	delete[] pointer;
 }
 
-// Error out if there are any issues with the given filename
-Handy::Result check_filename(const char *z) 
-{
-	std::string zs(z);
-
-	if (zs.compare(0, 3, "../") == 0)
-		return Handy::Result(false, std::string("Path begins with '../': ") + std::string(z));
-
-	if (zs.find("/../", 0) !=  std::string::npos)
-		return Handy::Result(false, std::string("Filename contains '/../' in its path: ") + std::string(z));
-
-	if (zs.find("\\", 0) !=  std::string::npos)
-		return Handy::Result(false, std::string("Filename with '\\' in its name: ") + std::string(z));
-
-	return Handy::Result(true);
-}
+//// Error out if there are any issues with the given filename
+//Handy::Result check_filename(const char *z) 
+//{
+//	std::string zs(z);
+//
+//	if (zs.compare(0, 3, "../") == 0)
+//		return Handy::Result(false, std::string("Path begins with '../': ") + std::string(z));
+//
+//	if (zs.find("/../", 0) !=  std::string::npos)
+//		return Handy::Result(false, std::string("Filename contains '/../' in its path: ") + std::string(z));
+//
+//	if (zs.find("\\", 0) !=  std::string::npos)
+//		return Handy::Result(false, std::string("Filename with '\\' in its name: ") + std::string(z));
+//
+//	return Handy::Result(true);
+//}
 
 namespace SQLarLib
 {
@@ -173,23 +173,22 @@ FileArchive::~FileArchive() // Must be above any uses of "std::unique_ptr<FileAr
 
 
 Handy::ResultV<FileArchive *> 
-FileArchive::Open(std::string filepath, FileArchive::Mode mode) // ALWAYS OpenExistingOnly
+FileArchive::Open(std::filesystem::path filepath_in, FileArchive::Mode mode) // ALWAYS OpenExistingOnly
 {
 	using MyResult = Handy::ResultV<FileArchive *>;
+
+	std::filesystem::path filepath = std::filesystem::absolute(filepath_in);
+	bool fileExists = std::filesystem::exists(filepath);
 
 	std::unique_ptr<FileArchive> fa(new FileArchive());
 
 	int fg = 0;
 
-	bool fileExists = _access(filepath.c_str(), F_OK) == 0;
-
 	switch (mode)
 	{
 		case FileArchive::Mode::Create:
 			if (fileExists)
-			{
-				return MyResult(false, std::string("Cannot 'Create' archive, file already exists: ") + filepath);
-			}
+				return MyResult(false, std::string("Cannot 'Create' archive, file already exists: ") + filepath.string());
 
 			fg |= SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE;
 			break;
@@ -200,18 +199,14 @@ FileArchive::Open(std::string filepath, FileArchive::Mode mode) // ALWAYS OpenEx
 
 		case FileArchive::Mode::Open:
 			if (!fileExists)
-			{
-				return MyResult(false, std::string("Cannot 'Open' archive, file not found: ") + filepath);
-			}
+				return MyResult(false, std::string("Cannot 'Open' archive, file not found: ") + filepath.string());
 
 			fg |= SQLITE_OPEN_READWRITE;
 			break;
 
 		case FileArchive::Mode::OpenReadOnly:
 			if (!fileExists)
-			{
-				return MyResult(false, std::string("Cannot 'OpenReadOnly' archive, file not found: ") + filepath);
-			}
+				return MyResult(false, std::string("Cannot 'OpenReadOnly' archive, file not found: ") + filepath.string());
 
 			fg |= SQLITE_OPEN_READONLY;
 
@@ -219,14 +214,19 @@ FileArchive::Open(std::string filepath, FileArchive::Mode mode) // ALWAYS OpenEx
 			break;
 
 		case FileArchive::Mode::Create_Replace:
-
-			if (fileExists)
-			{
-				remove(filepath.c_str());
-				remove((filepath + "-journal").c_str());
-			}
+		{
+			std::filesystem::path filepathJournal = filepath; filepathJournal += std::string("-journal");
+			std::filesystem::path filepathSHM     = filepath; filepathSHM     += std::string("-shm");
+			std::filesystem::path filepathWAL     = filepath; filepathWAL     += std::string("-wal");
+			
+			if (fileExists)                               try { std::filesystem::remove(filepath);        } catch (...) {}
+			if (std::filesystem::exists(filepathJournal)) try { std::filesystem::remove(filepathJournal); } catch (...) {}
+			if (std::filesystem::exists(filepathSHM))     try { std::filesystem::remove(filepathJournal); } catch (...) {}
+			if (std::filesystem::exists(filepathWAL))     try { std::filesystem::remove(filepathJournal); } catch (...) {}
 
 			fg |= SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE;
+		}
+		
 			break;
 
 		default:
@@ -250,10 +250,10 @@ FileArchive::Open(std::string filepath, FileArchive::Mode mode) // ALWAYS OpenEx
 	static char const * zSqlDELETE        = "DELETE FROM sqlar WHERE name == :FILENAMEAGK";
 	static char const * zSqlDELETEALL     = "DELETE FROM sqlar";
 
-	int rc = sqlite3_open_v2(filepath.c_str(), &fa->impl->m_db, fg, 0);
+	int rc = sqlite3_open_v2(filepath.u8string().c_str(), &fa->impl->m_db, fg, 0);
 
 	if (rc)
-		return MyResult(false, std::string("Cannot open archive [") + filepath + "]: " + sqlite3_errmsg(fa->impl->m_db));
+		return MyResult(false, std::string("Cannot open archive [") + filepath.string() + std::string("]: ") + sqlite3_errmsg(fa->impl->m_db));
 
 	if (sqlite3_exec(fa->impl->m_db, "PRAGMA journal_mode=WAL;", 0, 0, 0))
 		return MyResult(false, "Failed enable WAL on archive.");
@@ -303,9 +303,12 @@ FileArchive::Open(std::string filepath, FileArchive::Mode mode) // ALWAYS OpenEx
 }
 
 // static
-void FileArchive::AbortRollback(std::unique_ptr<FileArchive> fa)
+void FileArchive::AbortRollback(FileArchive * fa)
 {
-	fa->impl->db_close(0);
+	if (fa)
+		fa->impl->db_close(0);
+
+	Handy::SafeDelete(fa);
 }
 
 void FileArchive::PrintKeyNames()
@@ -381,29 +384,17 @@ bool FileArchive::Has(std::string key)
 	return false;
 }
 
-
-Handy::ResultV<std::tuple<char *, size_t>>   
-FileArchive::Get(std::string key)
+Handy::Result FileArchive::Get(std::string key, std::vector<uint8_t> & buffer)
 {
-	using MyResult = Handy::ResultV<std::tuple<char *, size_t>>;
-
 	if (sqlite3_reset(impl->m_prepStmtEXTRACT) || sqlite3_clear_bindings(impl->m_prepStmtEXTRACT))
-		return MyResult(false, "Unable to reset/clear old state for EXTRACT prepared statment.");
+		return Handy::Result(false, "Unable to reset/clear old state for EXTRACT prepared statment.");
 
 	sqlite3_bind_text(impl->m_prepStmtEXTRACT, 1, key.c_str(), -1, SQLITE_TRANSIENT);
 
 	if (sqlite3_step(impl->m_prepStmtEXTRACT) != SQLITE_ROW)
-		return MyResult(false, std::string("Key not found in archive: ") + key);
+		return Handy::Result(false, std::string("Key not found in archive: ") + key);
 
-	const char *zFN = (const char*)sqlite3_column_text(impl->m_prepStmtEXTRACT, 0);
-	Handy::Result fRes = check_filename(zFN);
-
-	if (!fRes.Success)
-		return MyResult(false, fRes.Reason);
-
-	if (zFN[0] == '/')
-		return MyResult(false, std::string("absolute pathname: ") + zFN + "\n");
-
+	const char *  zFN    = (const char*)sqlite3_column_text(impl->m_prepStmtEXTRACT, 0);
 	int           iMode  = sqlite3_column_int  (impl->m_prepStmtEXTRACT, 1);  // The unix-style access mode
 	sqlite3_int64 mtime  = sqlite3_column_int64(impl->m_prepStmtEXTRACT, 2);  // Modification time
 	int           sz     = sqlite3_column_int  (impl->m_prepStmtEXTRACT, 3);  // Size of file as stored on disk
@@ -411,7 +402,10 @@ FileArchive::Get(std::string key)
 	                       sqlite3_column_blob (impl->m_prepStmtEXTRACT, 4)); // Content (usually compressed)
 	int           nCompr = sqlite3_column_bytes(impl->m_prepStmtEXTRACT, 4);  // Size of content (prior to decompression)
 
-	char * pOut = new (std::nothrow) char[sz]();
+	buffer.clear();
+	buffer.resize(sz, 0_u8);
+
+	char * pOut = (char*)&buffer[0];
 
 	if (sz == nCompr)
 	{
@@ -422,24 +416,20 @@ FileArchive::Get(std::string key)
 		Handy::Result resD = decompress_arr(sz, pOut, nCompr, pCompr);
 
 		if (!resD.Success)
-			return MyResult(false, resD.Reason);
+			return resD;
 	}
 
-	return MyResult(true, std::tuple<char *, size_t>(pOut, sz));
+	return Handy::Result(true);
 }
 
-Handy::Result FileArchive::Put(std::string key, char const * ptr, int numBytes, bool noCompress/* = false*/, bool verbose/* = true*/)
+Handy::Result FileArchive::Put(std::string key, std::vector<uint8_t> const & buffer, bool compressed)
+//Handy::Result FileArchive::Put(std::string key, char const * ptr, int numBytes, bool noCompress/* = false*/, bool verbose/* = true*/)
 {
 	if (impl->m_ro)
 		return Handy::Result(false, "Cannot modify read-only archive.");
 
-	Handy::Result cfaRes = check_filename(key.c_str());
-
-	if (!cfaRes.Success)
-		return cfaRes;
-
-	// This number seems arbitrary to me, my vote would be to bump it up to 4 GiB.
-	if (numBytes > 1000000000)
+	// This number is arbitrary, my vote would be to bump it up to 4 GiB.
+	if (buffer.size() > 1000000000)
 		return Handy::Result(false, "Source data is too big: ");
 
 	if (sqlite3_reset(impl->m_prepStmtREPLACE) || sqlite3_clear_bindings(impl->m_prepStmtREPLACE))
@@ -447,25 +437,25 @@ Handy::Result FileArchive::Put(std::string key, char const * ptr, int numBytes, 
 
 	char const * zAName = key.c_str();
 
-	while (zAName[0] == '/') 
-		zAName++;
-
 	time_t currentTime = time(0);
 
 	sqlite3_bind_text (impl->m_prepStmtREPLACE, 1, zAName, -1, SQLITE_STATIC);
-	sqlite3_bind_int  (impl->m_prepStmtREPLACE, 2, 0666);
+	sqlite3_bind_int  (impl->m_prepStmtREPLACE, 2, (int)0666);
 	sqlite3_bind_int64(impl->m_prepStmtREPLACE, 3, currentTime);
 
 	unsigned long int szZ = 0;
 
-	Handy::ResultV<char *> rRes = compress_arr(numBytes, ptr, &szZ, noCompress);// read_reg_file(zFilenameSrcOSPath, &szOrig, &szCompr, noCompress);
+	Handy::ResultV<char *> rRes = compress_arr((unsigned long)buffer.size(), (char const *)&buffer[0], &szZ, !compressed);
 
 	if (!rRes.Success)
 		return Handy::Result(false, rRes.Reason);
 
+	if (!rRes.OpValue.has_value())
+		return Handy::Result(false, "Failed compression data pointer return.");
+
 	char * ptrZ = rRes.OpValue.value();
 
-	sqlite3_bind_int (impl->m_prepStmtREPLACE, 4, numBytes);
+	sqlite3_bind_int (impl->m_prepStmtREPLACE, 4, (int)buffer.size());
 	sqlite3_bind_blob(impl->m_prepStmtREPLACE, 5, ptrZ, szZ, delete_arr_ptr);
 
 	if (SQLITE_DONE != sqlite3_step(impl->m_prepStmtREPLACE))

@@ -31,6 +31,11 @@ int main()
 {
 	std::cout << "Beginning tests... " << std::endl;
 
+	std::string testString = "C:\\testFile.png";
+	std::vector<uint8_t> testData;
+	testData.resize(testString.size() + 1, 0);
+	memcpy(&testData[0], testString.c_str(), testString.size() + 1);
+
 	auto fao = FileArchive::Open("test.archive", FileArchive::Mode::Create_Replace);
 
 	if (!fao.Success ||!fao.OpValue)
@@ -44,39 +49,37 @@ int main()
 
 	FileArchive * fa = fao.OpValue.value();
 
-	try_FailPrintExit(fa->Put("testFile1.png", "C:\\testFile.png", 15, false, true));
-	try_FailPrintExit(fa->Put("testFile2.png", "C:\\testFile.png", 15, false, true));
-	try_FailPrintExit(fa->Put("testFile3.png", "C:\\testFile.png", 15, false, true));
+	try_FailPrintExit(fa->Put("testFile1.png", testData, false));
+	try_FailPrintExit(fa->Put("testFile2.png", testData, false));
+	try_FailPrintExit(fa->Put("testFile3.png", testData, false));
 
 	fa->PrintKeyNames();
 
-	try_FailPrintExit(fa->Put("testFile4.png", "C:\\testFile.png", 15, false, true));
-	try_FailPrintExit(fa->Put("testFile5.png", "C:\\testFile.png", 15, false, true));
+	try_FailPrintExit(fa->Put("testFile4.png", testData, false));
+	try_FailPrintExit(fa->Put("testFile5.png", testData, false));
 
-	try_FailPrintExit(fa->Get("testFile1.png"));
-	try_FailPrintExit(fa->Get("testFile2.png"));
-	try_FailPrintExit(fa->Get("testFile3.png"));
+	std::vector<uint8_t> buffer;
+
+	try_FailPrintExit(fa->Get("testFile1.png", buffer));
+	try_FailPrintExit(fa->Get("testFile2.png", buffer));
+	try_FailPrintExit(fa->Get("testFile3.png", buffer));
 
 	fa->PrintKeyInfos();
 
-	try_FailPrintExit(fa->Get("testFile4.png"));
-	try_FailPrintExit(fa->Get("testFile5.png"));
+	try_FailPrintExit(fa->Get("testFile4.png", buffer));
+	try_FailPrintExit(fa->Get("testFile5.png", buffer));
 
 	try_FailPrintExit(fa->Delete("testFile3.png"));
 
 	fa->PrintKeyNames();
 
-	auto resG = fa->Get("testFile4.png");
+	Handy::Result resG = fa->Get("testFile4.png", buffer);
 
-	if (!resG.Success || !resG.OpValue)
+	if (!resG.Success)
 	{
 		std::cerr << resG.Reason;
 		exit(5);
 	}
-
-	char * arr = std::get<0>(resG.OpValue.value());
-
-
 
 	return 0;
 }

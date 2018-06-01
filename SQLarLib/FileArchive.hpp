@@ -25,18 +25,18 @@ namespace SQLarLib
 			OpenReadOnly    // Open existing archive, or fail if the file doesn't already exist. DO NOT ALLOW WRITE OPERATIONS.
 		};
 
-		static Handy::ResultV<FileArchive *>       Open(std::string filepath, Mode mode);
-		static void                                AbortRollback(std::unique_ptr<FileArchive> fa);
+		static Handy::ResultV<FileArchive *> Open(std::filesystem::path filepath_in, Mode mode);
+		static void                          AbortRollback(FileArchive * fa);
 
-		Handy::ResultV<std::tuple<char *, size_t>> Get   (std::string key);
-		Handy::Result                              Put   (std::string key, char const * ptr, int numBytes, bool noCompress = false, bool verbose = true);
-		bool                                       Has   (std::string key);
-		Handy::Result                              Delete(std::string key);
+		Handy::Result                        Get   (std::string key, std::vector<uint8_t>       & buffer);
+		Handy::Result                        Put   (std::string key, std::vector<uint8_t> const & buffer, bool compressed = false);
+		bool                                 Has   (std::string key);
+		Handy::Result                        Delete(std::string key);
 
-		std::vector<std::string>                   KeyNames();
+		std::vector<std::string>             KeyNames();
 
-		void                                       PrintKeyNames();
-		void                                       PrintKeyInfos();
+		void                                 PrintKeyNames();
+		void                                 PrintKeyInfos();
 
 		virtual ~FileArchive();
 

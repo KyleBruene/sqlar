@@ -12,14 +12,11 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="dirent.h" />
-    <ClInclude Include="FilesystemOps.hpp" />
-    <ClInclude Include="Result.hpp" />
     <ClInclude Include="sqlite3.h" />
     <ClInclude Include="sqlite3ext.h" />
     <ClInclude Include="FileArchive.hpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="FilesystemOps.cpp" />
     <ClCompile Include="FileArchive.cpp" />
   </ItemGroup>
   <PropertyGroup Label="Globals">

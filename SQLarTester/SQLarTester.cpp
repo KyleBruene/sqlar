@@ -48,7 +48,7 @@ int main()
 	try_FailPrintExit(fa->Put("testFile2.png", "C:\\testFile.png", 15, false, true));
 	try_FailPrintExit(fa->Put("testFile3.png", "C:\\testFile.png", 15, false, true));
 
-	fa->PrintFilenames();
+	fa->PrintKeyNames();
 
 	try_FailPrintExit(fa->Put("testFile4.png", "C:\\testFile.png", 15, false, true));
 	try_FailPrintExit(fa->Put("testFile5.png", "C:\\testFile.png", 15, false, true));
@@ -57,14 +57,14 @@ int main()
 	try_FailPrintExit(fa->Get("testFile2.png"));
 	try_FailPrintExit(fa->Get("testFile3.png"));
 
-	fa->PrintFileinfos();
+	fa->PrintKeyInfos();
 
 	try_FailPrintExit(fa->Get("testFile4.png"));
 	try_FailPrintExit(fa->Get("testFile5.png"));
 
 	try_FailPrintExit(fa->Delete("testFile3.png"));
 
-	fa->PrintFilenames();
+	fa->PrintKeyNames();
 
 	auto resG = fa->Get("testFile4.png");
 

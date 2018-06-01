@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <cstdarg>
 #include <cstdlib>
+#include <cstdint>
 #include <cstring>
 #include <cassert>
 #include <cctype>
@@ -36,8 +37,25 @@
 	#include "sqlite3.h"
 #endif
 
-#include "FilesystemOps.hpp"
+#pragma warning( push )
+#pragma warning( disable : 4334 )  
+	#include "miniz.c" // This looks stooopid, but it's actually how you're supposed to use this single file library...
+#pragma warning( pop )
+
 #include "FileArchive.hpp"
+
+Handy::Result decompress_arr(
+	int           sz,        // Size of file as stored on disk
+	char *        pdest,     // Destination (post decompression), should be sz large
+	int           nCompr,    // Size of content (prior to decompression)
+	const char *  pCompr);   // Content (usually compressed)
+
+Handy::ResultV<char *> compress_arr(
+	unsigned long int nIn,    // Source data num bytes
+	const char * dIn,         // Source data.
+	unsigned long int * nOut, // Write compressed file size here
+	//char **      dOut,        // Compressed data written here. Dealloc using delete[]
+	bool noCompress);    
 
 #ifndef __unix
 	// Values for the second argument to access. These may be OR'd together.
@@ -52,6 +70,23 @@
 void delete_arr_ptr(void * pointer)
 {
 	delete[] pointer;
+}
+
+// Error out if there are any issues with the given filename
+Handy::Result check_filename(const char *z) 
+{
+	std::string zs(z);
+
+	if (zs.compare(0, 3, "../") == 0)
+		return Handy::Result(false, std::string("Path begins with '../': ") + std::string(z));
+
+	if (zs.find("/../", 0) !=  std::string::npos)
+		return Handy::Result(false, std::string("Filename contains '/../' in its path: ") + std::string(z));
+
+	if (zs.find("\\", 0) !=  std::string::npos)
+		return Handy::Result(false, std::string("Filename with '\\' in its name: ") + std::string(z));
+
+	return Handy::Result(true);
 }
 
 namespace SQLarLib
@@ -117,12 +152,6 @@ struct FileArchive::Private
 			m_prepStmtEXTRACTALL = 0;
 		}
 
-		//if (m_prepStmt) 
-		//{
-		//	sqlite3_finalize(m_prepStmt);
-		//	m_prepStmt = 0;
-		//}
-
 		if (m_db) 
 		{
 			sqlite3_exec(m_db, commitFlag ? "COMMIT" : "ROLLBACK", 0, 0, 0);
@@ -134,8 +163,7 @@ struct FileArchive::Private
 
 FileArchive::FileArchive() : impl(make_impl_nocopy<FileArchive::Private>())
 {
-
-
+	
 }
 
 FileArchive::~FileArchive() // Must be above any uses of "std::unique_ptr<FileArchive>"
@@ -280,77 +308,7 @@ void FileArchive::AbortRollback(std::unique_ptr<FileArchive> fa)
 	fa->impl->db_close(0);
 }
 
-Handy::Result FileArchive::Add(std::string dstArchivePath, std::string srcOSPath, bool noCompress, bool verbose/* = true */)
-{
-	if (impl->m_ro)
-		return Handy::Result(false, "Cannot modify read-only archive.");
-
-	const char *zFilenameDstArchive = dstArchivePath.c_str();
-	const char *zFilenameSrcOSPath = srcOSPath.c_str();
-
-	Handy::Result cfaRes = check_filename(zFilenameDstArchive);
-
-	if (!cfaRes.Success)
-		return cfaRes;
-
-	struct stat x;
-	int rc = stat(zFilenameSrcOSPath, &x);
-
-	if (rc)
-		return Handy::Result(false, std::string("Cannot stat file (does it exist?):: ") + zFilenameSrcOSPath);
-
-	// This number seems arbitrary to me, my vote would be to bump it up to 4 GiB.
-	if (x.st_size > 1000000000)
-		return Handy::Result(false, std::string("Source file is too big: ") + zFilenameSrcOSPath);
-
-	if (!S_ISREG(x.st_mode))
-		return Handy::Result(false, std::string("Source file is non-regular: ") + zFilenameSrcOSPath);
-
-	if (sqlite3_reset(impl->m_prepStmtREPLACE) || sqlite3_clear_bindings(impl->m_prepStmtREPLACE))
-		return Handy::Result(false, "Unable to reset/clear old state for REPLACE prepared statment.");
-
-	const char * zAName = zFilenameDstArchive;
-
-	while (zAName[0] == '/') 
-		zAName++;
-
-	sqlite3_bind_text (impl->m_prepStmtREPLACE, 1, zAName, -1, SQLITE_STATIC);
-	sqlite3_bind_int  (impl->m_prepStmtREPLACE, 2, x.st_mode);
-	sqlite3_bind_int64(impl->m_prepStmtREPLACE, 3, x.st_mtime);
-
-	int szOrig;
-	int szCompr;
-
-	Handy::ResultV<char *> rRes = read_reg_file(zFilenameSrcOSPath, &szOrig, &szCompr, noCompress);
-
-	if (!rRes.Success || !rRes.OpValue.has_value())
-		return Handy::Result(false, rRes.Reason);
-
-	char * zContent = rRes.OpValue.value();
-
-	sqlite3_bind_int (impl->m_prepStmtREPLACE, 4, szOrig);
-	sqlite3_bind_blob(impl->m_prepStmtREPLACE, 5, zContent, szCompr, delete_arr_ptr);
-
-	if (verbose) 
-	{
-		if (szCompr < szOrig) 
-		{
-			int pct = szOrig ? (100 * (sqlite3_int64)szCompr) / szOrig : 0;
-			printf("  added: %s -> %s (deflate %d%%)\n", zFilenameSrcOSPath, zFilenameDstArchive, 100 - pct);
-		}
-		else 
-		{
-			printf("  added: %s -> %s\n", zFilenameSrcOSPath, zFilenameDstArchive);
-		}
-	}
-
-	if (SQLITE_DONE != sqlite3_step(impl->m_prepStmtREPLACE))
-		return Handy::Result(false, std::string("Insert failed for ") + zFilenameSrcOSPath + " -> " + zFilenameDstArchive + " : " + sqlite3_errmsg(impl->m_db));
-
-	return Handy::Result(true);
-}
-
-void FileArchive::PrintFilenames()
+void FileArchive::PrintKeyNames()
 {
 	if (sqlite3_reset(impl->m_prepStmtPRINTFILES) || sqlite3_clear_bindings(impl->m_prepStmtPRINTFILES))
 		std::cerr << "Unable to reset/clear old state for PRINTFILES prepared statment.";
@@ -359,7 +317,7 @@ void FileArchive::PrintFilenames()
 		printf("%s\n", sqlite3_column_text(impl->m_prepStmtPRINTFILES, 0));
 }
 
-void FileArchive::PrintFileinfos()
+void FileArchive::PrintKeyInfos()
 {
 	if (sqlite3_reset(impl->m_prepStmtPRINTFILEINFO) || sqlite3_clear_bindings(impl->m_prepStmtPRINTFILEINFO))
 		std::cerr << "Unable to reset/clear old state for PRINTFILEINFO prepared statment.";
@@ -375,110 +333,15 @@ void FileArchive::PrintFileinfos()
 	}
 }
 
-Handy::Result FileArchive::Extract(std::string srcArchivePath, std::string dstOSPath, bool verbose)
-{
-	if (sqlite3_reset(impl->m_prepStmtEXTRACT) || sqlite3_clear_bindings(impl->m_prepStmtEXTRACT))
-		return Handy::Result(false, "Unable to reset/clear old state for EXTRACT prepared statment.");
-
-	sqlite3_bind_text(impl->m_prepStmtEXTRACT, 1, srcArchivePath.c_str(), -1, SQLITE_TRANSIENT);
-
-	if (sqlite3_step(impl->m_prepStmtEXTRACT) != SQLITE_ROW)
-		return Handy::Result(false, std::string("File not found in archive: ") + srcArchivePath);
-
-	const char *zFN = (const char*)sqlite3_column_text(impl->m_prepStmtEXTRACT, 0);
-	Handy::Result fRes = check_filename(zFN);
-
-	if (!fRes.Success)
-		return fRes;
-
-	if (zFN[0] == '/')
-		return Handy::Result(false, std::string("absolute pathname: ") + zFN + "\n");
-
-	if (sqlite3_column_type(impl->m_prepStmtEXTRACT, 4) == SQLITE_BLOB && _access(zFN, F_OK) == 0)
-		return Handy::Result(false, std::string("file already exists: ") + zFN + "\n");
-
-	if (verbose) 
-		printf("%s\n", zFN);
-
-	const char *  zFilename = zFN; // Store content in this file
-	int           iMode  = sqlite3_column_int  (impl->m_prepStmtEXTRACT, 1);  // The unix-style access mode
-	sqlite3_int64 mtime  = sqlite3_column_int64(impl->m_prepStmtEXTRACT, 2);  // Modification time
-	int           sz     = sqlite3_column_int  (impl->m_prepStmtEXTRACT, 3);  // Size of file as stored on disk
-	const char *  pCompr = reinterpret_cast<const char *>(
-							sqlite3_column_blob(impl->m_prepStmtEXTRACT, 4)); // Content (usually compressed)
-	int           nCompr = sqlite3_column_bytes(impl->m_prepStmtEXTRACT, 4);  // Size of content (prior to decompression)
-
-	Handy::Result wRes = write_file(
-		dstOSPath.c_str(), 
-		iMode,
-		mtime,
-		sz,
-		pCompr,
-		nCompr);
-
-	if (!wRes.Success)
-		return wRes;
-
-	return Handy::Result(true);
-}
-
-Handy::Result FileArchive::ExtractAll(std::string dstOSDirPath, bool verbose)
-{
-	struct stat x;
-	int rc = stat(dstOSDirPath.c_str(), &x);
-
-	if (rc)
-		return Handy::Result(false, std::string("Cannot stat directory (does it exist?): ") + dstOSDirPath);
-
-	if (!S_ISDIR(x.st_mode))
-		return Handy::Result(false, std::string("Path is not a directory: ") + dstOSDirPath);
-
-	if (sqlite3_reset(impl->m_prepStmtEXTRACTALL) || sqlite3_clear_bindings(impl->m_prepStmtEXTRACTALL))
-		return Handy::Result(false, "Unable to reset/clear old state for EXTRACTALL prepared statment.");
-
-	while (sqlite3_step(impl->m_prepStmtEXTRACTALL) == SQLITE_ROW) 
-	{
-		const char *zFN = (const char *)sqlite3_column_text(impl->m_prepStmtEXTRACTALL, 0);
-		check_filename(zFN);
-
-
-
-
-		//#warning I NEED TO DO MORE/BETTER PATH MANIPULATION!!!
-
-
-
-		if (zFN[0] == '/')
-			return Handy::Result(false, std::string("Absolute pathname: ") + zFN + "\n");
-
-		if (sqlite3_column_type(impl->m_prepStmtEXTRACTALL, 4) == SQLITE_BLOB && _access(zFN, F_OK) == 0)
-			return Handy::Result(false, std::string("file already exists: ") + zFN + "\n");
-
-		if (verbose) 
-			printf("%s\n", zFN);
-
-		write_file(
-			(dstOSDirPath + zFN).c_str(), 
-			sqlite3_column_int  (impl->m_prepStmtEXTRACTALL, 1),
-			sqlite3_column_int64(impl->m_prepStmtEXTRACTALL, 2),
-			sqlite3_column_int  (impl->m_prepStmtEXTRACTALL, 3),
-			reinterpret_cast<const char *>(
-				sqlite3_column_blob(impl->m_prepStmtEXTRACTALL, 4)),
-			sqlite3_column_bytes(impl->m_prepStmtEXTRACTALL, 4));
-	}
-
-	return Handy::Result(true);
-}
-
-Handy::Result FileArchive::Delete(std::string archivePath)
+Handy::Result FileArchive::Delete(std::string key)
 {
 	if (sqlite3_reset(impl->m_prepStmtDELETE) || sqlite3_clear_bindings(impl->m_prepStmtDELETE))
 		return Handy::Result(false, "Unable to reset/clear old state for DELETE prepared statment.");
 
-	sqlite3_bind_text(impl->m_prepStmtDELETE, 1, archivePath.c_str(), -1, SQLITE_TRANSIENT);
+	sqlite3_bind_text(impl->m_prepStmtDELETE, 1, key.c_str(), -1, SQLITE_TRANSIENT);
 
 	if (sqlite3_step(impl->m_prepStmtDELETE) != SQLITE_DONE)
-		return Handy::Result(false, std::string("Error removing file from archive: ") + archivePath);
+		return Handy::Result(false, std::string("Error removing key from archive: ") + key);
 
 	int recordsChanged = sqlite3_changes(impl->m_db);
 
@@ -486,13 +349,13 @@ Handy::Result FileArchive::Delete(std::string archivePath)
 		return Handy::Result(true);
 
 	if (recordsChanged == 0)
-		return Handy::Result(false, "File not found for deletion.");
+		return Handy::Result(false, "Key not found for deletion.");
 
-	return Handy::Result(false, "Unexpected result encountered on file deletion.");
+	return Handy::Result(false, "Unexpected result encountered on key deletion.");
 }
 
 std::vector<std::string> 
-FileArchive::Filenames()
+FileArchive::KeyNames()
 {
 	if (sqlite3_reset(impl->m_prepStmtPRINTFILES) || sqlite3_clear_bindings(impl->m_prepStmtPRINTFILES))
 		std::cerr << "Unable to reset/clear old state for PRINTFILES prepared statment.";
@@ -505,32 +368,32 @@ FileArchive::Filenames()
 	return std::move(ret);
 }
 
-bool FileArchive::HasFile(std::string filename)
+bool FileArchive::Has(std::string key)
 {
 	if (sqlite3_reset(impl->m_prepStmtCHECKHAS) || sqlite3_clear_bindings(impl->m_prepStmtCHECKHAS))
 		std::cerr << "Unable to reset/clear old state for CHECKHAS prepared statment.";
 
-	sqlite3_bind_text(impl->m_prepStmtCHECKHAS, 1, filename.c_str(), -1, SQLITE_TRANSIENT);
+	sqlite3_bind_text(impl->m_prepStmtCHECKHAS, 1, key.c_str(), -1, SQLITE_TRANSIENT);
 
 	if (sqlite3_step(impl->m_prepStmtCHECKHAS) == SQLITE_ROW)
-		return filename == std::string((const char *)sqlite3_column_text(impl->m_prepStmtCHECKHAS, 0));
+		return key == std::string((const char *)sqlite3_column_text(impl->m_prepStmtCHECKHAS, 0));
 
 	return false;
 }
 
 
 Handy::ResultV<std::tuple<char *, size_t>>   
-FileArchive::Get(std::string archivePath)
+FileArchive::Get(std::string key)
 {
 	using MyResult = Handy::ResultV<std::tuple<char *, size_t>>;
 
 	if (sqlite3_reset(impl->m_prepStmtEXTRACT) || sqlite3_clear_bindings(impl->m_prepStmtEXTRACT))
 		return MyResult(false, "Unable to reset/clear old state for EXTRACT prepared statment.");
 
-	sqlite3_bind_text(impl->m_prepStmtEXTRACT, 1, archivePath.c_str(), -1, SQLITE_TRANSIENT);
+	sqlite3_bind_text(impl->m_prepStmtEXTRACT, 1, key.c_str(), -1, SQLITE_TRANSIENT);
 
 	if (sqlite3_step(impl->m_prepStmtEXTRACT) != SQLITE_ROW)
-		return MyResult(false, std::string("File not found in archive: ") + archivePath);
+		return MyResult(false, std::string("Key not found in archive: ") + key);
 
 	const char *zFN = (const char*)sqlite3_column_text(impl->m_prepStmtEXTRACT, 0);
 	Handy::Result fRes = check_filename(zFN);
@@ -562,29 +425,15 @@ FileArchive::Get(std::string archivePath)
 			return MyResult(false, resD.Reason);
 	}
 
-	//std::cout << "GET: " << sz << " " << archivePath << " {" 
-	//	<< (int)pOut[0]  << " " 
-	//	<< (int)pOut[1]  << " " 
-	//	<< (int)pOut[2]  << " " 
-	//	<< (int)pOut[3]  << " " 
-	//	<< (int)pOut[4]  << "}" << std::endl;
-
 	return MyResult(true, std::tuple<char *, size_t>(pOut, sz));
 }
 
-Handy::Result FileArchive::Put(std::string archivePath, char const * ptr, int numBytes, bool noCompress/* = false*/, bool verbose/* = true*/)
+Handy::Result FileArchive::Put(std::string key, char const * ptr, int numBytes, bool noCompress/* = false*/, bool verbose/* = true*/)
 {
-	//std::cout << "PUT: " << numBytes << " " << archivePath << " {" 
-	//	<< (int)ptr[0]  << " " 
-	//	<< (int)ptr[1]  << " " 
-	//	<< (int)ptr[2]  << " " 
-	//	<< (int)ptr[3]  << " " 
-	//	<< (int)ptr[4]  << "}" << std::endl;
-
 	if (impl->m_ro)
 		return Handy::Result(false, "Cannot modify read-only archive.");
 
-	Handy::Result cfaRes = check_filename(archivePath.c_str());
+	Handy::Result cfaRes = check_filename(key.c_str());
 
 	if (!cfaRes.Success)
 		return cfaRes;
@@ -596,7 +445,7 @@ Handy::Result FileArchive::Put(std::string archivePath, char const * ptr, int nu
 	if (sqlite3_reset(impl->m_prepStmtREPLACE) || sqlite3_clear_bindings(impl->m_prepStmtREPLACE))
 		return Handy::Result(false, "Unable to reset/clear old state for REPLACE prepared statment.");
 
-	char const * zAName = archivePath.c_str();
+	char const * zAName = key.c_str();
 
 	while (zAName[0] == '/') 
 		zAName++;
@@ -625,18 +474,75 @@ Handy::Result FileArchive::Put(std::string archivePath, char const * ptr, int nu
 	return Handy::Result(true);
 }
 
+} // SQLarLib
 
 
-//std::unique_ptr<std::vector<uint8_t>> 
-//			   FileArchive::Get(std::string archivePath);
+// Decompress a file or blob.
 //
-//void                        Put(std::string archivePath, std::vector<uint8_t> const & data,   bool noCompress = false, bool verbose = true);
-//void                        Put(std::string archivePath, char const * ptr, uint64_t numBytes, bool noCompress = false, bool verbose = true);
-//
+// If sz>nCompr that means that the content is compressed and needs to be
+// decompressed.
+Handy::Result decompress_arr(
+	int           sz,        // Size of file as stored on disk
+	char *        pOut,      // Destination (post decompression), should be sz large
+	int           nCompr,    // Size of content (prior to decompression)
+	const char *  pCompr)    // Content (usually compressed)
+{
+	if (sz == nCompr)
+		return Handy::Result(false, "Pre and Post decompress sizes are the same.");
 
+	unsigned long int nOut = sz;
+
+	int rc = uncompress((Bytef *)pOut, &nOut, (const Bytef*)pCompr, nCompr);
+
+	if (rc != Z_OK)
+		return Handy::Result(false, "Decompression failed.");
+
+	std::cout << "Decompressed: " << nCompr << " to " << sz << std::endl;
+
+	return Handy::Result(true);
 }
 
+Handy::ResultV<char *> compress_arr(
+	unsigned long int   nIn,  // Source data num bytes
+	const char *        dIn,  // Source data.
+	unsigned long int * nOut, // Write compressed file size here
+							  //	char *              dOut, // Compressed data written here. Dealloc using delete[]
+	bool                noCompress)
+{
+	if (noCompress)
+	{
+		*nOut = nIn;
+		char * dOut = new (std::nothrow) char[nIn]();
+		memcpy(dOut, dIn, nIn);
 
+		return Handy::ResultV<char *>(true, dOut);
+	}
 
+	*nOut = 13 + nIn + (nIn + 999) / 1000;
+	char * dOut = new (std::nothrow) char[*nOut]();
 
+	if (dOut == 0)
+		return Handy::ResultV<char *>(false, std::string("Could not new[] alloc for ") + std::to_string(*nOut) + "bytes");
+
+	int rc = compress((Bytef*)dOut, nOut, (const Bytef*)dIn, nIn);
+
+	if (rc != Z_OK)
+	{
+		delete[] dOut;
+		return Handy::ResultV<char *>(false, "Cannot compress.");
+	}
+
+	if (nIn > *nOut)
+	{
+		std::cout << "Compressed: " << nIn << " to " << *nOut << std::endl;
+		return Handy::ResultV<char *>(true, dOut);
+	}
+	else 
+	{
+		delete[] dOut;
+		return compress_arr(nIn, dIn, nOut, true);
+	}
+
+	return Handy::ResultV<char *>(false, "Unlikely error encountered (threading or memory currupt?)");
+}
 

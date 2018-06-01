@@ -25,29 +25,23 @@ namespace SQLarLib
 			OpenReadOnly    // Open existing archive, or fail if the file doesn't already exist. DO NOT ALLOW WRITE OPERATIONS.
 		};
 
-		static Handy::ResultV<FileArchive *>    Open(std::string filepath, Mode mode);
-		static void                             AbortRollback(std::unique_ptr<FileArchive> fa);
+		static Handy::ResultV<FileArchive *>       Open(std::string filepath, Mode mode);
+		static void                                AbortRollback(std::unique_ptr<FileArchive> fa);
 
-		Handy::Result                           Add       (std::string dstArchivePath, std::string srcOSPath, bool noCompress = false, bool verbose = true);
-		Handy::Result                           Delete    (std::string archivePath);
-	
-		Handy::Result                           Extract   (std::string srcArchivePath, std::string dstOSPath, bool verbose = true);
-		Handy::Result                           ExtractAll(std::string dstOSDirPath, bool verbose = true);
+		Handy::ResultV<std::tuple<char *, size_t>> Get   (std::string key);
+		Handy::Result                              Put   (std::string key, char const * ptr, int numBytes, bool noCompress = false, bool verbose = true);
+		bool                                       Has   (std::string key);
+		Handy::Result                              Delete(std::string key);
 
-		Handy::ResultV<std::tuple<char *, size_t>>   
-										 Get(std::string archivePath);
-		Handy::Result                    Put(std::string archivePath, char const * ptr, int numBytes, bool noCompress = false, bool verbose = true);
+		std::vector<std::string>                   KeyNames();
 
-		std::vector<std::string>         Filenames ();
-		bool                             HasFile   (std::string filename);
+		void                                       PrintKeyNames();
+		void                                       PrintKeyInfos();
 
-		void                             PrintFilenames();
-		void                             PrintFileinfos();
-
-		virtual                         ~FileArchive();
+		virtual ~FileArchive();
 
 	private: 
-		                                 FileArchive();
+		FileArchive();
 	};
 
 }

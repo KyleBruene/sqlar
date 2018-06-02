@@ -449,8 +449,12 @@ Handy::Result FileArchive::Put(std::string key, std::vector<uint8_t> const & buf
 
 	if (!rRes.Success)
 		return Handy::Result(false, rRes.Reason);
-
-	if (!rRes.OpValue.has_value())
+	
+	if (!rRes.OpValue
+	#ifdef IS_WINDOWS
+	.has_value()
+	#endif
+	)
 		return Handy::Result(false, "Failed compression data pointer return.");
 
 	char * ptrZ = rRes.OpValue.value();

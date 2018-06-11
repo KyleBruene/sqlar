@@ -255,14 +255,18 @@ FileArchive::Open(std::filesystem::path filepath_in, FileArchive::Mode mode) // 
 	if (rc)
 		return MyResult(false, std::string("Cannot open archive [") + filepath.string() + std::string("]: ") + sqlite3_errmsg(fa->impl->m_db));
 
+#ifdef USE_SQLITE_WAL
 	if (sqlite3_exec(fa->impl->m_db, "PRAGMA journal_mode=WAL;", 0, 0, 0))
 		return MyResult(false, "Failed enable WAL on archive.");
 
+	sqlite3_wal_autocheckpoint(fa->impl->m_db, 1);
+
 	//if (sqlite3_exec(fa->impl->m_db, "PRAGMA wal_autocheckpoint=20;", 0, 0, 0))
 	//	std::cerr << "Failed to tighten WAL autocheckpointing.";
-
-	//if (sqlite3_exec(fa->impl->m_db, "BEGIN", 0, 0, 0))
-	//	return MyResult(false, "Failed BEGIN on archive.");
+#else
+	if (sqlite3_exec(fa->impl->m_db, "BEGIN", 0, 0, 0))
+		return MyResult(false, "Failed BEGIN on archive.");
+#endif
 
 	if (sqlite3_exec(fa->impl->m_db, zSchema, 0, 0, 0))
 		return MyResult(false, "Failed to execute schema init on archive.");
@@ -316,6 +320,13 @@ void FileArchive::PrintKeyNames()
 	if (sqlite3_reset(impl->m_prepStmtPRINTFILES) || sqlite3_clear_bindings(impl->m_prepStmtPRINTFILES))
 		std::cerr << "Unable to reset/clear old state for PRINTFILES prepared statment.";
 
+	Handy::OnScopeExit se([&]
+	{
+		if (sqlite3_reset(impl->m_prepStmtPRINTFILES) || sqlite3_clear_bindings(impl->m_prepStmtPRINTFILES))
+			std::cerr << "Unable to reset/clear old state for PRINTFILES prepared statment." << std::endl;
+	});
+
+
 	while (sqlite3_step(impl->m_prepStmtPRINTFILES) == SQLITE_ROW)
 		printf("%s\n", sqlite3_column_text(impl->m_prepStmtPRINTFILES, 0));
 }
@@ -324,6 +335,12 @@ void FileArchive::PrintKeyInfos()
 {
 	if (sqlite3_reset(impl->m_prepStmtPRINTFILEINFO) || sqlite3_clear_bindings(impl->m_prepStmtPRINTFILEINFO))
 		std::cerr << "Unable to reset/clear old state for PRINTFILEINFO prepared statment.";
+
+	Handy::OnScopeExit se([&]
+	{
+		if (sqlite3_reset(impl->m_prepStmtPRINTFILEINFO) || sqlite3_clear_bindings(impl->m_prepStmtPRINTFILEINFO))
+			std::cerr << "Unable to reset/clear old state for PRINTFILEINFO prepared statment." << std::endl;
+	});
 
 	while (sqlite3_step(impl->m_prepStmtPRINTFILEINFO) == SQLITE_ROW) 
 	{
@@ -340,6 +357,12 @@ Handy::Result FileArchive::Delete(std::string key)
 {
 	if (sqlite3_reset(impl->m_prepStmtDELETE) || sqlite3_clear_bindings(impl->m_prepStmtDELETE))
 		return Handy::Result(false, "Unable to reset/clear old state for DELETE prepared statment.");
+
+	Handy::OnScopeExit se([&]
+	{
+		if (sqlite3_reset(impl->m_prepStmtDELETE) || sqlite3_clear_bindings(impl->m_prepStmtDELETE))
+			std::cerr << "Unable to reset/clear old state for DELETE prepared statment." << std::endl;
+	});
 
 	sqlite3_bind_text(impl->m_prepStmtDELETE, 1, key.c_str(), -1, SQLITE_TRANSIENT);
 
@@ -363,6 +386,12 @@ FileArchive::KeyNames()
 	if (sqlite3_reset(impl->m_prepStmtPRINTFILES) || sqlite3_clear_bindings(impl->m_prepStmtPRINTFILES))
 		std::cerr << "Unable to reset/clear old state for PRINTFILES prepared statment.";
 
+	Handy::OnScopeExit se([&]
+	{
+		if (sqlite3_reset(impl->m_prepStmtPRINTFILES) || sqlite3_clear_bindings(impl->m_prepStmtPRINTFILES))
+			std::cerr << "Unable to reset/clear old state for PRINTFILES prepared statment." << std::endl;
+	});
+
 	std::vector<std::string> ret;
 
 	while (sqlite3_step(impl->m_prepStmtPRINTFILES) == SQLITE_ROW)
@@ -376,18 +405,32 @@ bool FileArchive::Has(std::string key)
 	if (sqlite3_reset(impl->m_prepStmtCHECKHAS) || sqlite3_clear_bindings(impl->m_prepStmtCHECKHAS))
 		std::cerr << "Unable to reset/clear old state for CHECKHAS prepared statment.";
 
+	Handy::OnScopeExit se([&]
+	{
+		if (sqlite3_reset(impl->m_prepStmtCHECKHAS) || sqlite3_clear_bindings(impl->m_prepStmtCHECKHAS))
+			std::cerr << "Unable to reset/clear old state for CHECKHAS prepared statment." << std::endl;
+	});
+
 	sqlite3_bind_text(impl->m_prepStmtCHECKHAS, 1, key.c_str(), -1, SQLITE_TRANSIENT);
 
-	if (sqlite3_step(impl->m_prepStmtCHECKHAS) == SQLITE_ROW)
-		return key == std::string((const char *)sqlite3_column_text(impl->m_prepStmtCHECKHAS, 0));
+	bool result = false;
 
-	return false;
+	if (sqlite3_step(impl->m_prepStmtCHECKHAS) == SQLITE_ROW)
+		result = key == std::string((const char *)sqlite3_column_text(impl->m_prepStmtCHECKHAS, 0));
+
+	return result;
 }
 
 Handy::Result FileArchive::Get(std::string key, std::vector<uint8_t> & buffer)
 {
 	if (sqlite3_reset(impl->m_prepStmtEXTRACT) || sqlite3_clear_bindings(impl->m_prepStmtEXTRACT))
 		return Handy::Result(false, "Unable to reset/clear old state for EXTRACT prepared statment.");
+
+	Handy::OnScopeExit se([&] 
+	{
+		if (sqlite3_reset(impl->m_prepStmtEXTRACT) || sqlite3_clear_bindings(impl->m_prepStmtEXTRACT))
+			std::cerr << "Unable to reset/clear old state for EXTRACT prepared statment." << std::endl;
+	});
 
 	sqlite3_bind_text(impl->m_prepStmtEXTRACT, 1, key.c_str(), -1, SQLITE_TRANSIENT);
 
@@ -434,6 +477,12 @@ Handy::Result FileArchive::Put(std::string key, void * buffer, size_t numBytes, 
 	if (sqlite3_reset(impl->m_prepStmtREPLACE) || sqlite3_clear_bindings(impl->m_prepStmtREPLACE))
 		return Handy::Result(false, "Unable to reset/clear old state for REPLACE prepared statment.");
 
+	Handy::OnScopeExit se([&]
+	{
+		if (sqlite3_reset(impl->m_prepStmtREPLACE) || sqlite3_clear_bindings(impl->m_prepStmtREPLACE))
+			std::cerr << "Unable to reset/clear old state for REPLACE prepared statment." << std::endl;
+	});
+		
 	char const * zAName = key.c_str();
 
 	time_t currentTime = time(0);
@@ -479,6 +528,12 @@ Handy::Result FileArchive::Put(std::string key, std::vector<uint8_t> const & buf
 
 	if (sqlite3_reset(impl->m_prepStmtREPLACE) || sqlite3_clear_bindings(impl->m_prepStmtREPLACE))
 		return Handy::Result(false, "Unable to reset/clear old state for REPLACE prepared statment.");
+
+	Handy::OnScopeExit se([&]
+	{ 
+		if (sqlite3_reset(impl->m_prepStmtREPLACE) || sqlite3_clear_bindings(impl->m_prepStmtREPLACE))
+			std::cerr << "Unable to reset/clear old state for REPLACE prepared statment." << std::endl;
+	});
 
 	char const * zAName = key.c_str();
 

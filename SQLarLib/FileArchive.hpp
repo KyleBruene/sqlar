@@ -30,6 +30,7 @@ namespace SQLarLib
 
 		Handy::Result                        Get   (std::string key, std::vector<uint8_t>       & buffer);
 		Handy::Result                        Put   (std::string key, std::vector<uint8_t> const & buffer, bool compressed = false);
+		Handy::Result                        Put   (std::string key, void * buffer, size_t numBytes,      bool compressed = false);
 		bool                                 Has   (std::string key);
 		Handy::Result                        Delete(std::string key);
 

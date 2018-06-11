@@ -25,11 +25,11 @@
 #include <iostream>
 #include <iterator>
 
-#if defined(_WIN32)
-#include "dirent.h"
-#else
-#include <dirent.h>
-#endif
+//#if defined(_WIN32)
+//#include "dirent.h"
+//#else
+//#include <dirent.h>
+//#endif
 
 #ifdef __unix
 	#include <sqlite3.h>
@@ -418,6 +418,51 @@ Handy::Result FileArchive::Get(std::string key, std::vector<uint8_t> & buffer)
 		if (!resD.Success)
 			return resD;
 	}
+
+	return Handy::Result(true);
+}
+
+Handy::Result FileArchive::Put(std::string key, void * buffer, size_t numBytes, bool compressed)
+{
+	if (impl->m_ro)
+		return Handy::Result(false, "Cannot modify read-only archive.");
+
+	// This number is arbitrary, my vote would be to bump it up to 4 GiB.
+	if (numBytes > 1000000000)
+		return Handy::Result(false, "Source data is too big: ");
+
+	if (sqlite3_reset(impl->m_prepStmtREPLACE) || sqlite3_clear_bindings(impl->m_prepStmtREPLACE))
+		return Handy::Result(false, "Unable to reset/clear old state for REPLACE prepared statment.");
+
+	char const * zAName = key.c_str();
+
+	time_t currentTime = time(0);
+
+	sqlite3_bind_text (impl->m_prepStmtREPLACE, 1, zAName, -1, SQLITE_STATIC);
+	sqlite3_bind_int  (impl->m_prepStmtREPLACE, 2, (int)0666);
+	sqlite3_bind_int64(impl->m_prepStmtREPLACE, 3, currentTime);
+
+	unsigned long int szZ = 0;
+
+	Handy::ResultV<char *> rRes = compress_arr((unsigned long)numBytes, (char const *)buffer, &szZ, !compressed);
+
+	if (!rRes.Success)
+		return Handy::Result(false, rRes.Reason);
+
+	if (!rRes.OpValue
+		#ifdef IS_WINDOWS
+		.has_value()
+		#endif
+		)
+		return Handy::Result(false, "Failed compression data pointer return.");
+
+	char * ptrZ = rRes.OpValue.value();
+
+	sqlite3_bind_int (impl->m_prepStmtREPLACE, 4, (int)numBytes);
+	sqlite3_bind_blob(impl->m_prepStmtREPLACE, 5, ptrZ, szZ, delete_arr_ptr);
+
+	if (SQLITE_DONE != sqlite3_step(impl->m_prepStmtREPLACE))
+		return Handy::Result(false, std::string("Insert for put: ") + sqlite3_errmsg(impl->m_db));
 
 	return Handy::Result(true);
 }

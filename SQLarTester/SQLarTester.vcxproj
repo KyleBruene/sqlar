@@ -62,7 +62,7 @@
     <ClCompile Include="SQLarTester.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <Library Include="..\..\..\bin\x64\SQLarLib.lib" />
+    <Library Include="..\SQLarLib\Bin\SQLarLib.lib" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

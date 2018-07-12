@@ -20,6 +20,6 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <Library Include="..\..\..\bin\x64\SQLarLib.lib" />
+    <Library Include="..\SQLarLib\Bin\SQLarLib.lib" />
   </ItemGroup>
 </Project>
